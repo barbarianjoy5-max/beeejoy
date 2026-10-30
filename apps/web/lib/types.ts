@@ -15,13 +15,13 @@ export interface UserProfile {
   updated_at: string;
 }
 
-export type ProductType = "cep_extension" | "script" | "standalone" | "plugin";
+export type ProductType = "free" | "premium" | "cep_extension" | "script" | "standalone" | "plugin";
 export type ProductStatus = "draft" | "pending_review" | "published" | "archived";
 
 export interface Product {
   id: string;
-  vendor_id: string;
-  category_id: string | null;
+  vendor_id?: string | null;
+  category_id?: string | null;
   title: string;
   slug: string;
   tagline: string | null;
@@ -32,12 +32,15 @@ export interface Product {
   status: ProductStatus;
   thumbnail_url: string | null;
   screenshots: string[];
-  metadata: {
+  metadata?: {
+    youtube_url?: string;
+    whatsapp_number?: string;
     min_illustrator_version?: string;
     max_illustrator_version?: string;
     cep_version?: string;
     os_compatibility?: string[];
     features?: string[];
+    [key: string]: any;
   };
   is_featured: boolean;
   created_at: string;

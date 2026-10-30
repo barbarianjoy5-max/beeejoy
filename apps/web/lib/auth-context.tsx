@@ -201,7 +201,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const isAdmin = profile?.role === "admin";
+  // Strict Single Admin check: both UUID and role must match.
+  const SINGLE_ADMIN_UUID = "e2f6c2a3-a0e4-46bf-a13f-5b6d088f839d";
+  const isAdmin =
+    user?.id === SINGLE_ADMIN_UUID && profile?.role === "admin";
 
   return (
     <AuthContext.Provider

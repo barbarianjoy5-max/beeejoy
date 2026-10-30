@@ -45,6 +45,8 @@ jobs:
         run: npx -y @insforge/cli@0.2.8 link --project-id 24d8903d-beb9-4025-abad-06cc0f5644bf
 
       - name: Deploy to InsForge
+        env:
+          INSFORGE_API_KEY: ${{ secrets.INSFORGE_API_KEY }}
         run: |
-          DEPLOY_ENV=$(node -e 'console.log(JSON.stringify({NEXT_PUBLIC_INSFORGE_URL: process.env.NEXT_PUBLIC_INSFORGE_URL, NEXT_PUBLIC_INSFORGE_ANON_KEY: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY}))')
+          DEPLOY_ENV=$(node -e 'console.log(JSON.stringify({NEXT_PUBLIC_INSFORGE_URL: process.env.NEXT_PUBLIC_INSFORGE_URL, NEXT_PUBLIC_INSFORGE_ANON_KEY: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY, INSFORGE_API_KEY: process.env.INSFORGE_API_KEY}))')
           npx -y @insforge/cli@0.2.8 deployments deploy apps/web --env "$DEPLOY_ENV"

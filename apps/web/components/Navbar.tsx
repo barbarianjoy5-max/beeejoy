@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../lib/auth-context";
-import { User, LogOut, Key, ShoppingBag, ShieldAlert, ChevronDown } from "lucide-react";
+import { User, LogOut, ShieldAlert, ChevronDown, PackageCheck, CreditCard } from "lucide-react";
 
 export default function Navbar() {
   const { user, profile, isAdmin, isLoading, signOut, openAuthModal } = useAuth();
@@ -29,15 +29,24 @@ export default function Navbar() {
 
         {/* Navigation items */}
         <nav className="flex items-center gap-6 text-sm font-medium text-zinc-400">
-          <Link href="/#extensions" className="hover:text-amber-400 transition-colors">
-            Illustrator Extensions
+          <Link href="/#products" className="hover:text-amber-400 transition-colors flex items-center gap-1.5">
+            <PackageCheck className="h-4 w-4" />
+            <span>Software Catalog</span>
           </Link>
-          <Link href="/#partner-software" className="hover:text-amber-400 transition-colors">
-            Partner Software
+          <Link href="/#payments" className="hover:text-amber-400 transition-colors flex items-center gap-1.5">
+            <CreditCard className="h-4 w-4" />
+            <span>Payment Info</span>
           </Link>
-          <Link href="/#licensing" className="hover:text-amber-400 transition-colors">
-            Licensing
-          </Link>
+
+          {isAdmin && (
+            <Link
+              href="/admin"
+              className="text-amber-400 hover:text-amber-300 font-semibold transition-colors flex items-center gap-1.5"
+            >
+              <ShieldAlert className="h-4 w-4" />
+              <span>Admin Dashboard</span>
+            </Link>
+          )}
 
           <div className="h-4 w-px bg-zinc-800" />
 
@@ -74,46 +83,25 @@ export default function Navbar() {
                       <p className="text-xs font-semibold text-white truncate">{user.email}</p>
                     </div>
 
+                    {isAdmin && (
+                      <Link
+                        href="/admin"
+                        onClick={() => setDropdownOpen(false)}
+                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition-colors mb-1"
+                      >
+                        <ShieldAlert className="h-3.5 w-3.5" />
+                        <span>Admin Control Panel</span>
+                      </Link>
+                    )}
+
                     <Link
                       href="/account"
                       onClick={() => setDropdownOpen(false)}
                       className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
                     >
                       <User className="h-3.5 w-3.5 text-amber-400" />
-                      <span>My Account</span>
+                      <span>My Profile</span>
                     </Link>
-
-                    <Link
-                      href="/account/licenses"
-                      onClick={() => setDropdownOpen(false)}
-                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
-                    >
-                      <Key className="h-3.5 w-3.5 text-amber-400" />
-                      <span>My Licenses & Keys</span>
-                    </Link>
-
-                    <Link
-                      href="/account/orders"
-                      onClick={() => setDropdownOpen(false)}
-                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
-                    >
-                      <ShoppingBag className="h-3.5 w-3.5 text-amber-400" />
-                      <span>Order History</span>
-                    </Link>
-
-                    {isAdmin && (
-                      <>
-                        <div className="my-1 border-t border-zinc-800" />
-                        <Link
-                          href="/admin"
-                          onClick={() => setDropdownOpen(false)}
-                          className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition-colors"
-                        >
-                          <ShieldAlert className="h-3.5 w-3.5" />
-                          <span>Admin Control Panel</span>
-                        </Link>
-                      </>
-                    )}
 
                     <div className="my-1 border-t border-zinc-800" />
 

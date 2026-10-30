@@ -1,9 +1,23 @@
 "use client";
 
-import React, { useState, use } from "react";
+import React, { useEffect, useState, use } from "react";
 import Link from "next/link";
-import { CheckCircle2, ShieldCheck, Download, Cpu, Clock, CreditCard, ArrowLeft } from "lucide-react";
-import CheckoutModal, { CheckoutProduct } from "../../../components/CheckoutModal";
+import {
+  Download,
+  ArrowLeft,
+  FileArchive,
+  MessageCircle,
+  Video,
+  CreditCard,
+  ShieldCheck,
+  CheckCircle2,
+  Clock,
+  Sparkles,
+  AlertCircle,
+} from "lucide-react";
+import { insforge } from "../../../lib/insforge";
+import { Product } from "../../../lib/types";
+import { getYouTubeEmbedUrl } from "../../../lib/youtube";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -11,241 +25,285 @@ interface PageProps {
 
 export default function ProductDetailPage({ params }: PageProps) {
   const { slug } = use(params);
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [product, setProduct] = useState<Product | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
 
-  const productData: Record<
-    string,
-    {
-      title: string;
-      category: string;
-      tagline: string;
-      price: string;
-      price_cents: number;
-      description: string;
-      badge: string;
-      features: string[];
-      specs: {
-        hostApp: string;
-        cepVersion: string;
-        os: string;
-        activations: string;
-        offlineGrace: string;
-      };
+  useEffect(() => {
+    async function loadProduct() {
+      try {
+        const { data, error } = await insforge.database
+          .from("products")
+          .select("*")
+          .eq("slug", slug)
+          .maybeSingle();
+
+        if (error || !data) {
+          setNotFound(true);
+        } else {
+          setProduct(data as Product);
+        }
+      } catch (err) {
+        console.error("Failed to load product:", err);
+        setNotFound(true);
+      } finally {
+        setIsLoading(false);
+      }
     }
-  > = {
-    "bejoy-system-active": {
-      title: "BEJOY SYSTEM ACTIVE",
-      category: "Adobe Illustrator CEP Extension",
-      badge: "Flagship CEP Extension",
-      tagline: "High-performance tool orchestration and workflow accelerator for Illustrator.",
-      price: "৳ 2,499",
-      price_cents: 249900,
-      description:
-        "BEJOY SYSTEM ACTIVE is an enterprise-grade CEP workflow accelerator developed specifically for high-volume vector illustrators, production designers, and agency artists. It integrates natively inside Adobe Illustrator to automate repetitive transformations, batch color harmonize, organize layers, and orchestrate script executions at lightning speed.",
-      features: [
-        "Full Adobe Illustrator CEP integration (Photoshop / Illustrator 2022-2026)",
-        "Instant one-click tool orchestration & macro automation",
-        "Up to 2 machine activations included with Option B verification",
-        "7-day offline license grace period with tamper-proof token storage",
-        "Free lifetime updates for v1.x series",
-        "Automatic background update check and signed `.zxp` package verification",
-      ],
-      specs: {
-        hostApp: "Adobe Illustrator 2022 - 2026 (v26.0+)",
-        cepVersion: "CEP 11 / 12 Native HTML5 Engine",
-        os: "macOS 12+ (Apple Silicon & Intel) / Windows 10 & 11 (64-bit)",
-        activations: "2 Machines per license (Option B Server-Validated)",
-        offlineGrace: "7 Days continuous offline operation",
-      },
-    },
-    "bejoy-browser": {
-      title: "BEJOY BROWSER",
-      category: "Adobe Illustrator CEP Extension",
-      badge: "In-App Browser",
-      tagline: "Seamless in-canvas asset, vector resource, and template browser inside Illustrator.",
-      price: "৳ 1,999",
-      price_cents: 199900,
-      description:
-        "BEJOY BROWSER embeds a responsive, fast asset search and resource browser directly inside your Adobe Illustrator workspace. Drag and drop vector components, color palettes, and SVG templates directly onto your active artboard without ever switching between desktop windows or browser tabs.",
-      features: [
-        "Embedded floating or docked panel directly inside Illustrator workspace",
-        "Fast local and cloud asset index search",
-        "Direct drag-and-drop vector placement onto active artboards",
-        "Multi-machine licensing support (up to 2 devices)",
-        "Optimized for high-DPI and Apple Retina displays",
-        "Secure automatic token renewal",
-      ],
-      specs: {
-        hostApp: "Adobe Illustrator 2021 - 2026 (v25.0+)",
-        cepVersion: "CEP 10 / 11 Native HTML5 Engine",
-        os: "macOS 11+ / Windows 10 & 11 (64-bit)",
-        activations: "2 Machines per license",
-        offlineGrace: "7 Days continuous offline operation",
-      },
-    },
-    "partner-suite": {
-      title: "PARTNER SUITE ACCESS",
-      category: "Multi-Vendor Marketplace",
-      badge: "Authorized Partner Software",
-      tagline: "Curated productivity tools and creative scripts from vetted third-party creators.",
-      price: "৳ 999",
-      price_cents: 99900,
-      description:
-        "The Partner Suite provides all-access entry to verified third-party developer extensions, ExtendScript workflows, and Illustrator automations curated and audited directly by the BEEEJOY engineering team.",
-      features: [
-        "Verified developer software with strict security audits",
-        "Direct verified download links via short-lived signed S3 URLs",
-        "Unified license management through your BEEEJOY dashboard",
-        "Vendor support and transparent licensing",
-      ],
-      specs: {
-        hostApp: "Adobe Illustrator / ExtendScript",
-        cepVersion: "Varies by tool",
-        os: "macOS & Windows",
-        activations: "Per-tool standard 2 activations",
-        offlineGrace: "7 Days offline validation",
-      },
-    },
-  };
 
-  const product = productData[slug] || {
-    title: slug.replace(/-/g, " ").toUpperCase(),
-    category: "Software Product",
-    badge: "Official Software",
-    tagline: "High quality professional software tool from BEEEJOY.",
-    price: "৳ 1,999",
-    price_cents: 199900,
-    description: "Detailed product information and documentation for this software package.",
-    features: ["Verified digital license", "Direct binary downloads", "Multi-machine support"],
-    specs: {
-      hostApp: "Adobe Illustrator",
-      cepVersion: "CEP 11+",
-      os: "macOS / Windows",
-      activations: "2 Machines",
-      offlineGrace: "7 Days",
-    },
-  };
+    loadProduct();
+  }, [slug]);
 
-  const checkoutProduct: CheckoutProduct = {
-    title: product.title,
-    slug: slug,
-    price: product.price,
-    price_cents: product.price_cents,
-    category: product.category,
-  };
+  if (isLoading) {
+    return (
+      <div className="mx-auto max-w-5xl px-6 py-16">
+        <div className="h-6 w-32 bg-zinc-800 rounded animate-pulse mb-8" />
+        <div className="grid gap-12 lg:grid-cols-3">
+          <div className="lg:col-span-2 space-y-6 animate-pulse">
+            <div className="aspect-video w-full rounded-2xl bg-zinc-800" />
+            <div className="h-8 w-3/4 bg-zinc-800 rounded" />
+            <div className="h-24 w-full bg-zinc-800/60 rounded" />
+          </div>
+          <div className="h-72 rounded-2xl bg-zinc-800 animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
+  if (notFound || !product) {
+    return (
+      <div className="mx-auto max-w-2xl px-6 py-24 text-center">
+        <FileArchive className="h-16 w-16 text-zinc-600 mx-auto mb-4" />
+        <h1 className="text-2xl font-bold text-white">Product Not Found</h1>
+        <p className="mt-2 text-sm text-zinc-400">
+          The software product you are looking for does not exist or has been unpublished.
+        </p>
+        <Link
+          href="/"
+          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-xs font-bold text-zinc-950 hover:bg-amber-400 transition-all"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          <span>Back to Software Catalog</span>
+        </Link>
+      </div>
+    );
+  }
+
+  const isFree = product.product_type === "free";
+  const priceBDT = product.price_cents ? (product.price_cents / 100).toLocaleString("en-BD") : "0";
+  const youtubeUrl = product.metadata?.youtube_url;
+  const embedUrl = getYouTubeEmbedUrl(youtubeUrl);
+
+  // Extract and validate product-specific WhatsApp number
+  const rawWhatsApp = product.metadata?.whatsapp_number;
+  const cleanWhatsApp = rawWhatsApp ? String(rawWhatsApp).replace(/[\s\+\-\(\)]/g, "").trim() : null;
+  const hasValidWhatsApp = Boolean(cleanWhatsApp && /^[0-9]{7,15}$/.test(cleanWhatsApp));
+
+  const whatsappMessage = encodeURIComponent(
+    `Hi BEEEJOY, I would like to purchase ${product.title} (Price: ৳${priceBDT}). Please provide payment instructions and confirm delivery.`
+  );
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-12">
-      {/* Checkout Modal */}
-      <CheckoutModal
-        product={checkoutProduct}
-        isOpen={isCheckoutOpen}
-        onClose={() => setIsCheckoutOpen(false)}
-      />
-
       {/* Back button */}
       <Link
-        href="/#extensions"
+        href="/#products"
         className="inline-flex items-center gap-2 text-xs font-medium text-zinc-400 hover:text-amber-400 transition-colors mb-8"
       >
         <ArrowLeft className="h-4 w-4" />
-        <span>Back to Storefront</span>
+        <span>Back to Software Catalog</span>
       </Link>
 
       <div className="grid gap-12 lg:grid-cols-3">
         {/* Main Details (2 cols) */}
         <div className="lg:col-span-2 space-y-8">
+          {/* Header & Badges */}
           <div>
             <div className="flex items-center gap-2">
-              <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
-                {product.badge}
-              </span>
-              <span className="text-xs text-zinc-500">{product.category}</span>
+              {isFree ? (
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400">
+                  FREE DOWNLOAD
+                </span>
+              ) : (
+                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
+                  PREMIUM SOFTWARE
+                </span>
+              )}
+              <span className="text-xs text-zinc-500">Official Release</span>
             </div>
 
             <h1 className="mt-4 text-3xl sm:text-4xl font-extrabold text-white">
               {product.title}
             </h1>
-            <p className="mt-2 text-sm text-zinc-400 leading-relaxed">{product.tagline}</p>
           </div>
 
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6 sm:p-8">
-            <h2 className="text-lg font-bold text-white mb-3">Product Overview</h2>
-            <p className="text-xs leading-relaxed text-zinc-300">{product.description}</p>
-          </div>
+          {/* Product Image */}
+          {product.thumbnail_url && (
+            <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
+              <img
+                src={product.thumbnail_url}
+                alt={product.title}
+                className="w-full h-auto object-cover max-h-[460px]"
+              />
+            </div>
+          )}
 
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6 sm:p-8">
-            <h2 className="text-lg font-bold text-white mb-4">Included Capabilities & Features</h2>
-            <ul className="space-y-3 text-xs text-zinc-300">
-              {product.features.map((feature, i) => (
-                <li key={i} className="flex items-start gap-3">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
-                  <span>{feature}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6 sm:p-8">
-            <h2 className="text-lg font-bold text-white mb-4">Technical Specifications</h2>
-            <div className="grid gap-3 sm:grid-cols-2 text-xs">
-              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-3.5">
-                <span className="text-[10px] text-zinc-500 block">Host Application</span>
-                <span className="font-semibold text-white">{product.specs.hostApp}</span>
+          {/* Optional YouTube Video Embed (ONLY rendered if valid YouTube URL is present) */}
+          {embedUrl && (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 sm:p-8">
+              <div className="flex items-center gap-2 text-white font-bold text-lg mb-4">
+                <Video className="h-5 w-5 text-red-500" />
+                <span>Product Video Preview & Walkthrough</span>
               </div>
-              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-3.5">
-                <span className="text-[10px] text-zinc-500 block">CEP Engine</span>
-                <span className="font-semibold text-white">{product.specs.cepVersion}</span>
-              </div>
-              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-3.5">
-                <span className="text-[10px] text-zinc-500 block">Operating System</span>
-                <span className="font-semibold text-white">{product.specs.os}</span>
-              </div>
-              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-3.5">
-                <span className="text-[10px] text-zinc-500 block">Machine Quota</span>
-                <span className="font-semibold text-white">{product.specs.activations}</span>
+              <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-black border border-zinc-800 shadow-xl">
+                <iframe
+                  src={embedUrl}
+                  title={`${product.title} Video Preview`}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  className="absolute inset-0 h-full w-full border-0"
+                />
               </div>
             </div>
+          )}
+
+          {/* Product Overview / Description */}
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6 sm:p-8">
+            <h2 className="text-lg font-bold text-white mb-3">Product Description</h2>
+            <div className="text-sm leading-relaxed text-zinc-300 whitespace-pre-line">
+              {product.description || "No description provided for this software product."}
+            </div>
+          </div>
+
+          {/* Features / Highlights */}
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6 sm:p-8">
+            <h2 className="text-lg font-bold text-white mb-4">Package Details</h2>
+            <ul className="space-y-3 text-xs text-zinc-300">
+              <li className="flex items-start gap-3">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
+                <span>Direct ZIP archive software package file</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <ShieldCheck className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+                <span>Verified safe and malware-free by BEEEJOY Admin</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <Sparkles className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+                <span>Compatible with standard Windows & macOS installations</span>
+              </li>
+            </ul>
           </div>
         </div>
 
-        {/* Pricing & Purchase Sidebar (1 col) */}
+        {/* Action & Purchase Sidebar (1 col) */}
         <div>
-          <div className="sticky top-24 rounded-2xl border border-amber-500/40 bg-zinc-900/80 p-6 sm:p-8 shadow-xl shadow-amber-500/5">
-            <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">
-              Official License
-            </span>
-            <div className="mt-3 flex items-baseline gap-1">
-              <span className="text-4xl font-black text-amber-400">{product.price}</span>
-              <span className="text-xs text-zinc-500">/ license</span>
+          <div className="sticky top-24 space-y-6">
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-6 sm:p-8 shadow-xl">
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                {isFree ? "Free Software" : "Premium License"}
+              </span>
+
+              <div className="mt-3 flex items-baseline gap-1">
+                {isFree ? (
+                  <span className="text-4xl font-black text-emerald-400">Free</span>
+                ) : (
+                  <>
+                    <span className="text-4xl font-black text-amber-400">৳ {priceBDT}</span>
+                    <span className="text-xs text-zinc-500">BDT</span>
+                  </>
+                )}
+              </div>
+
+              <div className="my-6 border-t border-zinc-800" />
+
+              {/* Free Direct Download */}
+              {isFree ? (
+                <div className="space-y-4">
+                  <a
+                    href={`/api/download/${product.slug}`}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3.5 text-xs font-bold text-zinc-950 hover:bg-emerald-400 shadow-lg shadow-emerald-500/20 transition-all text-center"
+                  >
+                    <Download className="h-4 w-4" />
+                    <span>Download ZIP File</span>
+                  </a>
+                  <p className="text-[11px] text-center text-zinc-400">
+                    Instant 1-click download. No login or payment required.
+                  </p>
+                </div>
+              ) : hasValidWhatsApp ? (
+                /* Premium Purchase: Direct WhatsApp Chat with Product Seller */
+                <div className="space-y-4">
+                  <a
+                    href={`https://wa.me/${cleanWhatsApp}?text=${whatsappMessage}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-xs font-bold text-white hover:bg-emerald-500 shadow-lg shadow-emerald-600/25 transition-all text-center"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    <span>Order via WhatsApp</span>
+                  </a>
+                  <p className="text-[11px] text-center text-zinc-400">
+                    Contact the seller directly on WhatsApp for instant confirmation & file delivery.
+                  </p>
+                </div>
+              ) : (
+                /* Premium software where seller WhatsApp is not configured */
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-center space-y-1">
+                  <div className="flex items-center justify-center gap-1.5 text-amber-400 font-semibold text-xs">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <span>WhatsApp Contact Not Set</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed">
+                    The seller&apos;s WhatsApp number has not been configured for this product yet.
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-6 space-y-3 text-[11px] text-zinc-400 border-t border-zinc-800 pt-6">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-amber-400 shrink-0" />
+                  <span>Admin verified original software package</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-amber-400 shrink-0" />
+                  <span>Fast manual response and support</span>
+                </div>
+              </div>
             </div>
-            <p className="mt-2 text-xs text-zinc-400">
-              One-time payment. Up to 2 machines active simultaneously with 7-day offline grace period.
-            </p>
 
-            <div className="my-6 border-t border-zinc-800" />
+            {/* Premium Payment Details Card */}
+            {!isFree && (
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-xs">
+                <div className="flex items-center gap-2 text-white font-bold mb-3">
+                  <CreditCard className="h-4 w-4 text-amber-400" />
+                  <span>Payment Instructions</span>
+                </div>
+                <p className="text-zinc-400 text-[11px] mb-4">
+                  Send Money (Personal) to either of the following accounts:
+                </p>
 
-            <button
-              onClick={() => setIsCheckoutOpen(true)}
-              className="w-full rounded-xl bg-amber-500 py-3.5 text-xs font-bold text-zinc-950 hover:bg-amber-400 shadow-lg shadow-amber-500/25 transition-all text-center"
-            >
-              Buy License Now (bKash / Nagad)
-            </button>
+                <div className="space-y-2 mb-4">
+                  <div className="rounded-lg border border-pink-500/20 bg-pink-500/5 p-2.5">
+                    <span className="text-[10px] text-pink-400 font-bold block">bKash (Send Money)</span>
+                    <span className="text-white font-mono font-semibold">[Admin bKash Number]</span>
+                  </div>
+                  <div className="rounded-lg border border-orange-500/20 bg-orange-500/5 p-2.5">
+                    <span className="text-[10px] text-orange-400 font-bold block">Nagad (Send Money)</span>
+                    <span className="text-white font-mono font-semibold">[Admin Nagad Number]</span>
+                  </div>
+                </div>
 
-            <div className="mt-6 space-y-3 text-[11px] text-zinc-400">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-amber-400 shrink-0" />
-                <span>Instant manual verification with TrxID</span>
+                <p className="text-[11px] text-zinc-400 leading-relaxed">
+                  After payment, share your <span className="text-white font-semibold">TrxID</span> on WhatsApp at{" "}
+                  {hasValidWhatsApp ? (
+                    <span className="text-emerald-400 font-mono font-semibold">+{cleanWhatsApp}</span>
+                  ) : (
+                    <span className="text-zinc-500 italic">[Seller WhatsApp Not Configured]</span>
+                  )}
+                  . The seller will verify and provide the full ZIP software package immediately.
+                </p>
               </div>
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-amber-400 shrink-0" />
-                <span>7-Day offline token validation grace</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Download className="h-4 w-4 text-amber-400 shrink-0" />
-                <span>Signed `.zxp` extension installer package</span>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </div>

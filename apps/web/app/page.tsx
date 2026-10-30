@@ -1,252 +1,269 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ShieldCheck, Download, Sparkles, Cpu, Layers, CreditCard, Clock } from "lucide-react";
-import CheckoutModal, { CheckoutProduct } from "../components/CheckoutModal";
+import {
+  Download,
+  Sparkles,
+  ShieldCheck,
+  CheckCircle2,
+  ExternalLink,
+  MessageCircle,
+  FileArchive,
+  ArrowRight,
+  PackageCheck,
+  CreditCard,
+} from "lucide-react";
+import { insforge } from "../lib/insforge";
+import { Product } from "../lib/types";
 
 export default function HomePage() {
-  const [selectedProduct, setSelectedProduct] = useState<CheckoutProduct | null>(null);
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [filter, setFilter] = useState<"all" | "free" | "premium">("all");
 
-  const products = [
-    {
-      title: "BEJOY SYSTEM ACTIVE",
-      slug: "bejoy-system-active",
-      badge: "Flagship CEP Extension",
-      category: "Adobe Illustrator CEP Extension",
-      tagline: "High-performance tool orchestration and workflow accelerator for Illustrator.",
-      price: "৳ 2,499",
-      price_cents: 249900,
-      features: [
-        "Full Adobe Illustrator CEP integration",
-        "Instant one-click tool orchestration & automation",
-        "Up to 2 machine activations included",
-        "7-day offline license grace period",
-        "Free lifetime updates for v1.x",
-      ],
-      featured: true,
-    },
-    {
-      title: "BEJOY BROWSER",
-      slug: "bejoy-browser",
-      badge: "In-App Browser",
-      category: "Adobe Illustrator CEP Extension",
-      tagline: "Seamless in-canvas asset, vector resource, and template browser inside Illustrator.",
-      price: "৳ 1,999",
-      price_cents: 199900,
-      features: [
-        "Embedded floating panel directly inside workspace",
-        "Fast local & cloud asset search",
-        "Drag-and-drop vector placement directly onto artboards",
-        "Multi-machine licensing support",
-        "Optimized for high-DPI displays",
-      ],
-      featured: false,
-    },
-    {
-      title: "PARTNER SUITE ACCESS",
-      slug: "partner-suite",
-      badge: "Authorized Partner Software",
-      category: "Multi-Vendor Marketplace",
-      tagline: "Curated productivity tools and creative scripts from vetted third-party creators.",
-      price: "৳ 999",
-      price_cents: 99900,
-      features: [
-        "Verified developer software",
-        "Strict code security inspection",
-        "Direct verified download links",
-        "Vendor support and transparent licensing",
-      ],
-      featured: false,
-    },
-  ];
+  useEffect(() => {
+    async function loadProducts() {
+      try {
+        const { data, error } = await insforge.database
+          .from("products")
+          .select("*")
+          .eq("status", "published")
+          .order("created_at", { ascending: false });
 
-  const handleBuy = (p: typeof products[0]) => {
-    setSelectedProduct({
-      title: p.title,
-      slug: p.slug,
-      price: p.price,
-      price_cents: p.price_cents,
-      category: p.category,
-    });
-    setIsCheckoutOpen(true);
-  };
+        if (!error && data) {
+          setProducts(data as Product[]);
+        }
+      } catch (err) {
+        console.error("Failed to load products:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadProducts();
+  }, []);
+
+  const filteredProducts = products.filter((p) => {
+    if (filter === "free") return p.product_type === "free";
+    if (filter === "premium") return p.product_type === "premium";
+    return true;
+  });
 
   return (
     <div className="flex flex-col items-center">
-      {/* Checkout Modal */}
-      <CheckoutModal
-        product={selectedProduct}
-        isOpen={isCheckoutOpen}
-        onClose={() => setIsCheckoutOpen(false)}
-      />
-
       {/* Hero Section */}
-      <section className="relative w-full overflow-hidden px-6 py-24 sm:py-32">
+      <section className="relative w-full overflow-hidden px-6 py-20 sm:py-28">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(45%_50%_at_50%_40%,rgba(245,158,11,0.12),rgba(9,9,11,0))] pointer-events-none" />
         <div className="mx-auto max-w-4xl text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3.5 py-1 text-xs font-semibold text-amber-400">
             <Sparkles className="h-3.5 w-3.5" />
-            <span>Next-Gen Creator Tools & Adobe Illustrator Extensions</span>
+            <span>Official BEEEJOY Software Catalog</span>
           </div>
 
           <h1 className="mt-8 text-4xl font-extrabold tracking-tight sm:text-6xl text-white">
-            Supercharge Your Design Flow with <span className="text-amber-400">BEEEJOY</span>
+            Fast, Reliable Software Downloads by <span className="text-amber-400">BEEEJOY</span>
           </h1>
 
-          <p className="mt-6 text-lg leading-8 text-zinc-400 max-w-2xl mx-auto">
-            The premium software store for professional Adobe Illustrator CEP extensions, proprietary design accelerators, and authorized developer tools.
+          <p className="mt-6 text-base sm:text-lg leading-8 text-zinc-400 max-w-2xl mx-auto">
+            Download verified free software directly with one click, or contact us directly to purchase premium tools with manual bKash & Nagad support.
           </p>
 
-          <div className="mt-10 flex items-center justify-center gap-4">
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
             <a
-              href="#extensions"
-              className="rounded-xl bg-amber-500 px-6 py-3 text-sm font-semibold text-zinc-950 shadow-lg shadow-amber-500/25 hover:bg-amber-400 transition-all"
+              href="#products"
+              className="rounded-xl bg-amber-500 px-6 py-3 text-sm font-semibold text-zinc-950 shadow-lg shadow-amber-500/25 hover:bg-amber-400 transition-all flex items-center gap-2"
             >
-              Explore Products
+              <PackageCheck className="h-4 w-4" />
+              <span>Browse Catalog</span>
             </a>
             <a
               href="#payments"
-              className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-6 py-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700 hover:text-white transition-all"
+              className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-6 py-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700 hover:text-white transition-all flex items-center gap-2"
             >
-              Payment Methods (bKash / Nagad)
+              <CreditCard className="h-4 w-4" />
+              <span>Payment Info (bKash / Nagad)</span>
             </a>
           </div>
         </div>
       </section>
 
-      {/* Flagship Extensions Section */}
-      <section id="extensions" className="w-full max-w-7xl px-6 py-16">
-        <div className="mb-12">
-          <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Software Catalog</span>
-          <h2 className="mt-2 text-3xl font-bold tracking-tight text-white">Featured Adobe CEP Extensions</h2>
-          <p className="mt-2 text-sm text-zinc-400">
-            Engineered specifically for Adobe Illustrator with verified server-side licensing and offline grace protection.
-          </p>
-        </div>
-
-        <div className="grid gap-8 md:grid-cols-3">
-          {products.map((product) => (
-            <div
-              key={product.slug}
-              id={product.slug === "partner-suite" ? "partner-software" : undefined}
-              className={`flex flex-col justify-between rounded-2xl border p-8 transition-all ${
-                product.featured
-                  ? "border-amber-500/50 bg-gradient-to-b from-amber-950/20 to-zinc-950/90 shadow-xl shadow-amber-500/5"
-                  : "border-zinc-800 bg-zinc-900/40 hover:border-zinc-700"
-              }`}
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300">
-                    {product.badge}
-                  </span>
-                  <span className="text-xs font-medium text-zinc-500">{product.category}</span>
-                </div>
-
-                <h3 className="mt-4 text-2xl font-bold text-white">
-                  <Link href={`/products/${product.slug}`} className="hover:text-amber-400 transition-colors">
-                    {product.title}
-                  </Link>
-                </h3>
-                <p className="mt-2 text-xs leading-relaxed text-zinc-400">{product.tagline}</p>
-
-                <div className="mt-6 flex items-baseline gap-1">
-                  <span className="text-3xl font-black text-amber-400">{product.price}</span>
-                  <span className="text-xs text-zinc-500">/ license</span>
-                </div>
-
-                <div className="my-6 h-px bg-zinc-800" />
-
-                <ul className="space-y-3 text-xs text-zinc-300">
-                  {product.features.map((feature, i) => (
-                    <li key={i} className="flex items-start gap-2.5">
-                      <CheckCircle2 className="h-4 w-4 shrink-0 text-amber-400" />
-                      <span>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="mt-8 pt-4 flex flex-col gap-2">
-                <button
-                  onClick={() => handleBuy(product)}
-                  className={`w-full rounded-xl py-3 text-xs font-bold transition-all ${
-                    product.featured
-                      ? "bg-amber-500 text-zinc-950 hover:bg-amber-400 shadow-md shadow-amber-500/20"
-                      : "border border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-amber-500/40 hover:text-white"
-                  }`}
-                >
-                  Buy License
-                </button>
-                <Link
-                  href={`/products/${product.slug}`}
-                  className="text-center text-[11px] font-medium text-zinc-500 hover:text-amber-400 py-1 transition-colors"
-                >
-                  View specs & compatibility →
-                </Link>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Security & Licensing Architecture Highlights */}
-      <section id="licensing" className="w-full border-y border-zinc-900 bg-zinc-900/20 py-20 px-6">
-        <div className="mx-auto max-w-7xl">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Architecture</span>
-            <h2 className="mt-2 text-3xl font-bold text-white">Security & Licensing Built for Creators</h2>
-            <p className="mt-2 text-sm text-zinc-400">
-              Zero compromises on file security, licensing reliability, or user convenience.
+      {/* Catalog Section */}
+      <section id="products" className="w-full max-w-7xl px-6 py-12">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+          <div>
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Software Releases</span>
+            <h2 className="mt-1 text-3xl font-bold tracking-tight text-white">Available Software</h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Direct ZIP downloads for Free tools &bull; Instant WhatsApp order for Premium software.
             </p>
           </div>
 
-          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-6">
-              <ShieldCheck className="h-8 w-8 text-amber-400 mb-4" />
-              <h3 className="text-base font-bold text-white">Server-Validated (Option B)</h3>
-              <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-                Machine fingerprinting enforces activation limits securely in the cloud without invasive client software.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-6">
-              <Clock className="h-8 w-8 text-amber-400 mb-4" />
-              <h3 className="text-base font-bold text-white">7-Day Offline Grace</h3>
-              <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-                Temporary network drops won&apos;t halt your work. Validated tokens remain active locally for 7 days offline.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-6">
-              <Download className="h-8 w-8 text-amber-400 mb-4" />
-              <h3 className="text-base font-bold text-white">Private Signed Downloads</h3>
-              <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-                Binary `.zxp` extension packages are strictly private and accessible only via short-lived authenticated S3 URLs.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-6">
-              <CreditCard className="h-8 w-8 text-amber-400 mb-4" />
-              <h3 className="text-base font-bold text-white">Verified Manual Payments</h3>
-              <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-                Supports bKash and Nagad with transaction references. Licenses are minted strictly after admin verification.
-              </p>
-            </div>
+          {/* Filter Pills */}
+          <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-900/80 p-1 self-start sm:self-auto">
+            <button
+              onClick={() => setFilter("all")}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                filter === "all"
+                  ? "bg-amber-500 text-zinc-950 font-bold shadow"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              All ({products.length})
+            </button>
+            <button
+              onClick={() => setFilter("free")}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                filter === "free"
+                  ? "bg-emerald-500 text-zinc-950 font-bold shadow"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              Free ({products.filter((p) => p.product_type === "free").length})
+            </button>
+            <button
+              onClick={() => setFilter("premium")}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                filter === "premium"
+                  ? "bg-amber-500 text-zinc-950 font-bold shadow"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              Premium ({products.filter((p) => p.product_type === "premium").length})
+            </button>
           </div>
         </div>
+
+        {/* Loading Skeleton */}
+        {isLoading ? (
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 animate-pulse flex flex-col justify-between h-96"
+              >
+                <div>
+                  <div className="h-44 w-full rounded-xl bg-zinc-800 mb-4" />
+                  <div className="h-5 w-3/4 bg-zinc-800 rounded mb-2" />
+                  <div className="h-4 w-1/2 bg-zinc-800/60 rounded" />
+                </div>
+                <div className="h-10 w-full bg-zinc-800 rounded-xl" />
+              </div>
+            ))}
+          </div>
+        ) : filteredProducts.length === 0 ? (
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-12 text-center">
+            <FileArchive className="h-12 w-12 text-zinc-600 mx-auto mb-3" />
+            <h3 className="text-lg font-bold text-white">No software products found</h3>
+            <p className="mt-1 text-xs text-zinc-400">
+              {filter !== "all"
+                ? `There are currently no published ${filter} products.`
+                : "The admin has not published any software products yet. Please check back soon!"}
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredProducts.map((product) => {
+              const isFree = product.product_type === "free";
+              const priceBDT = product.price_cents ? (product.price_cents / 100).toLocaleString("en-BD") : "0";
+
+              return (
+                <div
+                  key={product.id}
+                  className="group flex flex-col justify-between rounded-2xl border border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900/70 transition-all overflow-hidden"
+                >
+                  <div>
+                    {/* Thumbnail Image */}
+                    <Link href={`/products/${product.slug}`} className="block relative aspect-video w-full bg-zinc-950 overflow-hidden border-b border-zinc-800/60">
+                      {product.thumbnail_url ? (
+                        <img
+                          src={product.thumbnail_url}
+                          alt={product.title}
+                          className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-zinc-900 to-zinc-950">
+                          <FileArchive className="h-12 w-12 text-zinc-700" />
+                        </div>
+                      )}
+                      <div className="absolute top-3 right-3">
+                        {isFree ? (
+                          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/20 px-2.5 py-0.5 text-[11px] font-bold text-emerald-400 backdrop-blur-md">
+                            FREE
+                          </span>
+                        ) : (
+                          <span className="rounded-full border border-amber-500/30 bg-amber-500/20 px-2.5 py-0.5 text-[11px] font-bold text-amber-300 backdrop-blur-md">
+                            PREMIUM
+                          </span>
+                        )}
+                      </div>
+                    </Link>
+
+                    {/* Card Content */}
+                    <div className="p-6">
+                      <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition-colors">
+                        <Link href={`/products/${product.slug}`}>{product.title}</Link>
+                      </h3>
+                      <p className="mt-2 text-xs text-zinc-400 line-clamp-3 leading-relaxed">
+                        {product.description || "No description provided."}
+                      </p>
+
+                      <div className="mt-6 flex items-baseline gap-1">
+                        {isFree ? (
+                          <span className="text-2xl font-black text-emerald-400">Free</span>
+                        ) : (
+                          <>
+                            <span className="text-2xl font-black text-amber-400">৳ {priceBDT}</span>
+                            <span className="text-xs text-zinc-500">BDT</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="p-6 pt-0 flex flex-col gap-2">
+                    {isFree ? (
+                      <a
+                        href={`/api/download/${product.slug}`}
+                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-xs font-bold text-zinc-950 hover:bg-emerald-400 shadow-md shadow-emerald-500/20 transition-all"
+                      >
+                        <Download className="h-4 w-4" />
+                        <span>Download Free ZIP</span>
+                      </a>
+                    ) : (
+                      <Link
+                        href={`/products/${product.slug}`}
+                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-xs font-bold text-zinc-950 hover:bg-amber-400 shadow-md shadow-amber-500/20 transition-all"
+                      >
+                        <span>View Details & Order</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    )}
+
+                    <Link
+                      href={`/products/${product.slug}`}
+                      className="text-center text-[11px] font-medium text-zinc-500 hover:text-zinc-300 py-1 transition-colors flex items-center justify-center gap-1"
+                    >
+                      <span>Full specifications & video</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Manual Payment Information Section */}
-      <section id="payments" className="w-full max-w-7xl px-6 py-20">
+      <section id="payments" className="w-full max-w-7xl px-6 py-16">
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-8 sm:p-12">
-          <div className="max-w-2xl">
-            <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Payment Process</span>
-            <h2 className="mt-2 text-3xl font-bold text-white">How Manual Verification Works</h2>
+          <div className="max-w-3xl">
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Payment & Delivery</span>
+            <h2 className="mt-2 text-3xl font-bold text-white">How Premium Purchases Work</h2>
             <p className="mt-3 text-sm text-zinc-400">
-              For Bangladesh customers and international orders prior to automated gateway activation:
+              Simple, transparent manual purchase process without complicated checkout accounts:
             </p>
 
             <div className="mt-8 space-y-6">
@@ -255,9 +272,9 @@ export default function HomePage() {
                   1
                 </span>
                 <div>
-                  <h4 className="text-sm font-semibold text-white">Select Product & Order</h4>
+                  <h4 className="text-sm font-semibold text-white">Choose Your Software</h4>
                   <p className="mt-1 text-xs text-zinc-400">
-                    Place an order for BEJOY SYSTEM ACTIVE or BEJOY BROWSER to receive a unique Order Number.
+                    Browse our catalog. Free tools download instantly with 1-click. For premium tools, view the product details and price.
                   </p>
                 </div>
               </div>
@@ -267,10 +284,20 @@ export default function HomePage() {
                   2
                 </span>
                 <div>
-                  <h4 className="text-sm font-semibold text-white">Send Payment via bKash / Nagad / Bank</h4>
+                  <h4 className="text-sm font-semibold text-white">Send Payment via bKash or Nagad</h4>
                   <p className="mt-1 text-xs text-zinc-400">
-                    Send Money to our official verified accounts and note your Transaction ID (TrxID) or deposit receipt.
+                    Send Money to our official numbers:
                   </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 text-xs">
+                    <div className="rounded-xl border border-pink-500/20 bg-pink-500/5 p-3">
+                      <span className="text-pink-400 font-bold block">bKash (Send Money / Personal)</span>
+                      <span className="text-white font-mono font-semibold mt-1 block">[Admin bKash Number]</span>
+                    </div>
+                    <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-3">
+                      <span className="text-orange-400 font-bold block">Nagad (Send Money / Personal)</span>
+                      <span className="text-white font-mono font-semibold mt-1 block">[Admin Nagad Number]</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -279,10 +306,22 @@ export default function HomePage() {
                   3
                 </span>
                 <div>
-                  <h4 className="text-sm font-semibold text-white">Admin Verification & Instant License Issuance</h4>
+                  <h4 className="text-sm font-semibold text-white">Contact on WhatsApp for Delivery</h4>
                   <p className="mt-1 text-xs text-zinc-400">
-                    Our team reviews the submission. Once verified, your license key is generated in your dashboard and signed download links become active immediately.
+                    Send your payment Transaction ID (TrxID) and the product name to WhatsApp at{" "}
+                    <span className="text-white font-mono font-semibold">[Admin WhatsApp Number]</span>. The admin will verify and send your software ZIP package file immediately.
                   </p>
+                  <div className="mt-4">
+                    <a
+                      href="https://wa.me/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-emerald-500 transition-all shadow-md shadow-emerald-600/20"
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                      <span>Chat with Admin on WhatsApp</span>
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
