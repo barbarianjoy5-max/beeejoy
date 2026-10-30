@@ -14,9 +14,10 @@ import {
   Clock,
   Sparkles,
   AlertCircle,
+  Store,
 } from "lucide-react";
 import { insforge } from "../../../lib/insforge";
-import { Product } from "../../../lib/types";
+import { Product, PublicVendor } from "../../../lib/types";
 import { getYouTubeEmbedUrl } from "../../../lib/youtube";
 
 interface PageProps {
@@ -41,6 +42,18 @@ export default function ProductDetailPage({ params }: PageProps) {
         if (error || !data) {
           setNotFound(true);
         } else {
+          // If product has a vendor_id, fetch vendor from public_vendors view
+          if (data.vendor_id) {
+            const { data: vData } = await insforge.database
+              .from("public_vendors")
+              .select("id, store_name, slug, bio, cover_url, created_at")
+              .eq("id", data.vendor_id)
+              .maybeSingle();
+
+            if (vData) {
+              data.vendor = vData as PublicVendor;
+            }
+          }
           setProduct(data as Product);
         }
       } catch (err) {
@@ -99,23 +112,25 @@ export default function ProductDetailPage({ params }: PageProps) {
   const cleanWhatsApp = rawWhatsApp ? String(rawWhatsApp).replace(/[\s\+\-\(\)]/g, "").trim() : null;
   const hasValidWhatsApp = Boolean(cleanWhatsApp && /^[0-9]{7,15}$/.test(cleanWhatsApp));
 
+  // Construct message
   const whatsappMessage = encodeURIComponent(
-    `Hi BEEEJOY, I would like to purchase ${product.title} (Price: ৳${priceBDT}). Please provide payment instructions and confirm delivery.`
+    `Hello, I would like to order "${product.title}" (Price: ৳${priceBDT} BDT) from BEEEJOY.`
   );
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-12">
-      {/* Back button */}
-      <Link
-        href="/#products"
-        className="inline-flex items-center gap-2 text-xs font-medium text-zinc-400 hover:text-amber-400 transition-colors mb-8"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        <span>Back to Software Catalog</span>
-      </Link>
+    <div className="mx-auto max-w-5xl px-6 py-8">
+      {/* Breadcrumb navigation */}
+      <div className="flex items-center gap-2 text-xs text-zinc-500 mb-8">
+        <Link href="/" className="hover:text-amber-400 transition-colors flex items-center gap-1">
+          <ArrowLeft className="h-3 w-3" />
+          <span>Software Catalog</span>
+        </Link>
+        <span>/</span>
+        <span className="text-zinc-300 font-medium truncate max-w-xs">{product.title}</span>
+      </div>
 
       <div className="grid gap-12 lg:grid-cols-3">
-        {/* Main Details (2 cols) */}
+        {/* Main Content (2 cols) */}
         <div className="lg:col-span-2 space-y-8">
           {/* Header & Badges */}
           <div>
@@ -135,6 +150,22 @@ export default function ProductDetailPage({ params }: PageProps) {
             <h1 className="mt-4 text-3xl sm:text-4xl font-extrabold text-white">
               {product.title}
             </h1>
+
+            {/* Seller attribution link */}
+            <div className="mt-2.5 flex items-center gap-2 text-xs text-zinc-400">
+              <span>Sold by:</span>
+              {product.vendor ? (
+                <Link
+                  href={`/seller/${product.vendor.slug}`}
+                  className="inline-flex items-center gap-1.5 font-semibold text-amber-400 hover:text-amber-300 hover:underline"
+                >
+                  <Store className="h-3.5 w-3.5" />
+                  <span>{product.vendor.store_name}</span>
+                </Link>
+              ) : (
+                <span className="font-semibold text-zinc-300">BEEEJOY Official</span>
+              )}
+            </div>
           </div>
 
           {/* Product Image */}
@@ -178,24 +209,28 @@ export default function ProductDetailPage({ params }: PageProps) {
           {/* Features / Highlights */}
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6 sm:p-8">
             <h2 className="text-lg font-bold text-white mb-4">Package Details</h2>
-            <ul className="space-y-3 text-xs text-zinc-300">
-              <li className="flex items-start gap-3">
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
-                <span>Direct ZIP archive software package file</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <ShieldCheck className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
-                <span>Verified safe and malware-free by BEEEJOY Admin</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Sparkles className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
-                <span>Compatible with standard Windows & macOS installations</span>
-              </li>
-            </ul>
+            <div className="grid gap-3 sm:grid-cols-2 text-xs">
+              <div className="flex items-center gap-2.5 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-zinc-300">
+                <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0" />
+                <span>Verified Clean ZIP Package</span>
+              </div>
+              <div className="flex items-center gap-2.5 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-zinc-300">
+                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                <span>Compatible with Windows & macOS</span>
+              </div>
+              <div className="flex items-center gap-2.5 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-zinc-300">
+                <Clock className="h-4 w-4 text-amber-400 shrink-0" />
+                <span>Instant Delivery after Payment</span>
+              </div>
+              <div className="flex items-center gap-2.5 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-zinc-300">
+                <Sparkles className="h-4 w-4 text-amber-400 shrink-0" />
+                <span>Full Setup & Installation Support</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Action & Purchase Sidebar (1 col) */}
+        {/* Action Sidebar (1 col) */}
         <div>
           <div className="sticky top-24 space-y-6">
             <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-6 sm:p-8 shadow-xl">
@@ -213,6 +248,22 @@ export default function ProductDetailPage({ params }: PageProps) {
                   </>
                 )}
               </div>
+
+              {/* Seller attribution card */}
+              {product.vendor && (
+                <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 truncate">
+                    <Store className="h-4 w-4 text-amber-400 shrink-0" />
+                    <span className="truncate text-zinc-300 font-medium">{product.vendor.store_name}</span>
+                  </div>
+                  <Link
+                    href={`/seller/${product.vendor.slug}`}
+                    className="text-[11px] font-semibold text-amber-400 hover:underline shrink-0 ml-2"
+                  >
+                    View Store
+                  </Link>
+                </div>
+              )}
 
               <div className="my-6 border-t border-zinc-800" />
 
@@ -243,64 +294,38 @@ export default function ProductDetailPage({ params }: PageProps) {
                     <span>Order via WhatsApp</span>
                   </a>
                   <p className="text-[11px] text-center text-zinc-400">
-                    Contact the seller directly on WhatsApp for instant confirmation & file delivery.
+                    Click to chat directly on WhatsApp ({cleanWhatsApp}) with pre-filled product details.
                   </p>
                 </div>
               ) : (
-                /* Premium software where seller WhatsApp is not configured */
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-center space-y-1">
-                  <div className="flex items-center justify-center gap-1.5 text-amber-400 font-semibold text-xs">
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                    <span>WhatsApp Contact Not Set</span>
+                /* Unconfigured WhatsApp notice */
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-300 flex items-start gap-2.5">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+                    <span>Contact details are currently being updated for this product. Please check back shortly.</span>
                   </div>
-                  <p className="text-[11px] text-zinc-400 leading-relaxed">
-                    The seller&apos;s WhatsApp number has not been configured for this product yet.
-                  </p>
                 </div>
               )}
-
-              <div className="mt-6 space-y-3 text-[11px] text-zinc-400 border-t border-zinc-800 pt-6">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-amber-400 shrink-0" />
-                  <span>Admin verified original software package</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-amber-400 shrink-0" />
-                  <span>Fast manual response and support</span>
-                </div>
-              </div>
             </div>
 
-            {/* Premium Payment Details Card */}
+            {/* Manual Payment Information Card (bKash & Nagad) for Premium products */}
             {!isFree && (
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 text-xs">
-                <div className="flex items-center gap-2 text-white font-bold mb-3">
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 text-xs space-y-4">
+                <div className="flex items-center gap-2 text-white font-bold">
                   <CreditCard className="h-4 w-4 text-amber-400" />
-                  <span>Payment Instructions</span>
+                  <span>Manual Payment Instructions</span>
                 </div>
-                <p className="text-zinc-400 text-[11px] mb-4">
-                  Send Money (Personal) to either of the following accounts:
+                <p className="text-zinc-400 leading-relaxed">
+                  To complete your order, send{" "}
+                  <strong className="text-white">৳ {priceBDT} BDT</strong> via{" "}
+                  <strong className="text-pink-400">bKash</strong> or{" "}
+                  <strong className="text-orange-400">Nagad</strong> to the contact number provided on WhatsApp:
                 </p>
-
-                <div className="space-y-2 mb-4">
-                  <div className="rounded-lg border border-pink-500/20 bg-pink-500/5 p-2.5">
-                    <span className="text-[10px] text-pink-400 font-bold block">bKash (Send Money)</span>
-                    <span className="text-white font-mono font-semibold">[Admin bKash Number]</span>
-                  </div>
-                  <div className="rounded-lg border border-orange-500/20 bg-orange-500/5 p-2.5">
-                    <span className="text-[10px] text-orange-400 font-bold block">Nagad (Send Money)</span>
-                    <span className="text-white font-mono font-semibold">[Admin Nagad Number]</span>
-                  </div>
+                <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3 font-mono text-center text-amber-400 font-bold tracking-wider text-sm">
+                  {cleanWhatsApp || "WhatsApp Contact"}
                 </div>
-
-                <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  After payment, share your <span className="text-white font-semibold">TrxID</span> on WhatsApp at{" "}
-                  {hasValidWhatsApp ? (
-                    <span className="text-emerald-400 font-mono font-semibold">+{cleanWhatsApp}</span>
-                  ) : (
-                    <span className="text-zinc-500 italic">[Seller WhatsApp Not Configured]</span>
-                  )}
-                  . The seller will verify and provide the full ZIP software package immediately.
+                <p className="text-[11px] text-zinc-500 leading-relaxed">
+                  After sending the payment, share your Transaction ID (TrxID) in the WhatsApp chat. The software package and license key will be delivered instantly.
                 </p>
               </div>
             )}

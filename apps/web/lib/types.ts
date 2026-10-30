@@ -3,6 +3,30 @@
 // ==============================================================================
 
 export type UserRole = "customer" | "vendor" | "admin";
+export type VendorStatus = "pending" | "active" | "suspended";
+
+export interface Vendor {
+  id: string;
+  user_id: string;
+  store_name: string;
+  slug: string;
+  bio: string | null;
+  cover_url: string | null;
+  status: VendorStatus;
+  commission_rate: number;
+  payout_info?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PublicVendor {
+  id: string;
+  store_name: string;
+  slug: string;
+  bio: string | null;
+  cover_url: string | null;
+  created_at: string;
+}
 
 export interface UserProfile {
   id: string;
@@ -21,6 +45,7 @@ export type ProductStatus = "draft" | "pending_review" | "published" | "archived
 export interface Product {
   id: string;
   vendor_id?: string | null;
+  vendor?: PublicVendor | null;
   category_id?: string | null;
   title: string;
   slug: string;

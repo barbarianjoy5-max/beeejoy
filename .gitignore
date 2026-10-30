@@ -27,6 +27,7 @@ out/
 build/
 dist/
 *.log
+*.tsbuildinfo
 
 # Scratch and local diagnostics
 *.patch

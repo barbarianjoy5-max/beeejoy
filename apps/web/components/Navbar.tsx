@@ -3,10 +3,10 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../lib/auth-context";
-import { User, LogOut, ShieldAlert, ChevronDown, PackageCheck, CreditCard } from "lucide-react";
+import { User, LogOut, ShieldAlert, ChevronDown, PackageCheck, CreditCard, Store } from "lucide-react";
 
 export default function Navbar() {
-  const { user, profile, isAdmin, isLoading, signOut, openAuthModal } = useAuth();
+  const { user, profile, isAdmin, isSeller, isLoading, signOut, openAuthModal } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   return (
@@ -38,6 +38,16 @@ export default function Navbar() {
             <span>Payment Info</span>
           </Link>
 
+          {isSeller && (
+            <Link
+              href="/seller/dashboard"
+              className="text-amber-400/90 hover:text-amber-300 font-semibold transition-colors flex items-center gap-1.5"
+            >
+              <Store className="h-4 w-4" />
+              <span>Seller Dashboard</span>
+            </Link>
+          )}
+
           {isAdmin && (
             <Link
               href="/admin"
@@ -62,11 +72,15 @@ export default function Navbar() {
                   {user.email?.charAt(0).toUpperCase()}
                 </div>
                 <span className="max-w-[120px] truncate">{profile?.full_name || user.email}</span>
-                {isAdmin && (
+                {isAdmin ? (
                   <span className="rounded bg-amber-500/20 px-1 py-0.2 text-[9px] font-bold text-amber-400 uppercase">
                     Admin
                   </span>
-                )}
+                ) : isSeller ? (
+                  <span className="rounded bg-emerald-500/20 px-1 py-0.2 text-[9px] font-bold text-emerald-400 uppercase">
+                    Seller
+                  </span>
+                ) : null}
                 <ChevronDown className="h-3.5 w-3.5 text-zinc-400" />
               </button>
 
@@ -91,6 +105,26 @@ export default function Navbar() {
                       >
                         <ShieldAlert className="h-3.5 w-3.5" />
                         <span>Admin Control Panel</span>
+                      </Link>
+                    )}
+
+                    {isSeller ? (
+                      <Link
+                        href="/seller/dashboard"
+                        onClick={() => setDropdownOpen(false)}
+                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition-colors mb-1"
+                      >
+                        <Store className="h-3.5 w-3.5" />
+                        <span>Seller Dashboard</span>
+                      </Link>
+                    ) : (
+                      <Link
+                        href="/seller/dashboard"
+                        onClick={() => setDropdownOpen(false)}
+                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-amber-300/80 hover:bg-zinc-800 hover:text-amber-300 transition-colors"
+                      >
+                        <Store className="h-3.5 w-3.5 text-amber-400" />
+                        <span>Become a Seller</span>
                       </Link>
                     )}
 

@@ -13,9 +13,10 @@ import {
   ArrowRight,
   PackageCheck,
   CreditCard,
+  Store,
 } from "lucide-react";
 import { insforge } from "../lib/insforge";
-import { Product } from "../lib/types";
+import { Product, PublicVendor } from "../lib/types";
 
 export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -25,14 +26,26 @@ export default function HomePage() {
   useEffect(() => {
     async function loadProducts() {
       try {
-        const { data, error } = await insforge.database
+        const { data: prodsData, error: pErr } = await insforge.database
           .from("products")
           .select("*")
           .eq("status", "published")
           .order("created_at", { ascending: false });
 
-        if (!error && data) {
-          setProducts(data as Product[]);
+        if (!pErr && prodsData) {
+          // Fetch public vendors to enrich cards with seller attribution
+          const { data: vendorsData } = await insforge.database
+            .from("public_vendors")
+            .select("id, store_name, slug, bio, cover_url, created_at");
+
+          const vendorMap = new Map((vendorsData || []).map((v: any) => [v.id, v as PublicVendor]));
+
+          const enriched = prodsData.map((p: any) => ({
+            ...p,
+            vendor: p.vendor_id ? vendorMap.get(p.vendor_id) || null : null,
+          }));
+
+          setProducts(enriched as Product[]);
         }
       } catch (err) {
         console.error("Failed to load products:", err);
@@ -58,7 +71,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-4xl text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3.5 py-1 text-xs font-semibold text-amber-400">
             <Sparkles className="h-3.5 w-3.5" />
-            <span>Official BEEEJOY Software Catalog</span>
+            <span>Official BEEEJOY Software Catalog & Creator Marketplace</span>
           </div>
 
           <h1 className="mt-8 text-4xl font-extrabold tracking-tight sm:text-6xl text-white">
@@ -66,7 +79,7 @@ export default function HomePage() {
           </h1>
 
           <p className="mt-6 text-base sm:text-lg leading-8 text-zinc-400 max-w-2xl mx-auto">
-            Download verified free software directly with one click, or contact us directly to purchase premium tools with manual bKash & Nagad support.
+            Download verified free software directly with one click, or contact product sellers to purchase premium creator tools with manual bKash & Nagad support.
           </p>
 
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
@@ -100,12 +113,12 @@ export default function HomePage() {
           </div>
 
           {/* Filter Pills */}
-          <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-900/80 p-1 self-start sm:self-auto">
+          <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 p-1 self-start sm:self-auto">
             <button
               onClick={() => setFilter("all")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+              className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
                 filter === "all"
-                  ? "bg-amber-500 text-zinc-950 font-bold shadow"
+                  ? "bg-amber-500 text-zinc-950 shadow-sm"
                   : "text-zinc-400 hover:text-white"
               }`}
             >
@@ -113,9 +126,9 @@ export default function HomePage() {
             </button>
             <button
               onClick={() => setFilter("free")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+              className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
                 filter === "free"
-                  ? "bg-emerald-500 text-zinc-950 font-bold shadow"
+                  ? "bg-amber-500 text-zinc-950 shadow-sm"
                   : "text-zinc-400 hover:text-white"
               }`}
             >
@@ -123,9 +136,9 @@ export default function HomePage() {
             </button>
             <button
               onClick={() => setFilter("premium")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+              className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
                 filter === "premium"
-                  ? "bg-amber-500 text-zinc-950 font-bold shadow"
+                  ? "bg-amber-500 text-zinc-950 shadow-sm"
                   : "text-zinc-400 hover:text-white"
               }`}
             >
@@ -166,6 +179,10 @@ export default function HomePage() {
             {filteredProducts.map((product) => {
               const isFree = product.product_type === "free";
               const priceBDT = product.price_cents ? (product.price_cents / 100).toLocaleString("en-BD") : "0";
+              const cleanWhatsApp = product.metadata?.whatsapp_number
+                ? String(product.metadata.whatsapp_number).replace(/[\s\+\-\(\)]/g, "").trim()
+                : null;
+              const hasValidWhatsApp = Boolean(cleanWhatsApp && /^[0-9]{7,15}$/.test(cleanWhatsApp));
 
               return (
                 <div
@@ -204,11 +221,29 @@ export default function HomePage() {
                       <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition-colors">
                         <Link href={`/products/${product.slug}`}>{product.title}</Link>
                       </h3>
+
+                      {/* Seller Name Attribution */}
+                      <div className="mt-1.5 flex items-center gap-1.5 text-xs text-zinc-400">
+                        <span>By</span>
+                        {product.vendor ? (
+                          <Link
+                            href={`/seller/${product.vendor.slug}`}
+                            className="inline-flex items-center gap-1 font-semibold text-amber-400 hover:text-amber-300 hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Store className="h-3 w-3" />
+                            <span>{product.vendor.store_name}</span>
+                          </Link>
+                        ) : (
+                          <span className="font-semibold text-zinc-400">BEEEJOY Official</span>
+                        )}
+                      </div>
+
                       <p className="mt-2 text-xs text-zinc-400 line-clamp-3 leading-relaxed">
                         {product.description || "No description provided."}
                       </p>
 
-                      <div className="mt-6 flex items-baseline gap-1">
+                      <div className="mt-5 flex items-baseline gap-1">
                         {isFree ? (
                           <span className="text-2xl font-black text-emerald-400">Free</span>
                         ) : (
@@ -221,33 +256,56 @@ export default function HomePage() {
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="p-6 pt-0 flex flex-col gap-2">
+                  {/* Card Actions */}
+                  <div className="border-t border-zinc-800/80 p-6 pt-4 bg-zinc-950/20">
                     {isFree ? (
-                      <a
-                        href={`/api/download/${product.slug}`}
-                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-xs font-bold text-zinc-950 hover:bg-emerald-400 shadow-md shadow-emerald-500/20 transition-all"
-                      >
-                        <Download className="h-4 w-4" />
-                        <span>Download Free ZIP</span>
-                      </a>
+                      <div className="space-y-2">
+                        <a
+                          href={`/api/download/${product.slug}`}
+                          className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-xs font-bold text-zinc-950 hover:bg-emerald-400 shadow-md shadow-emerald-500/15 transition-all text-center"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          <span>Direct ZIP Download</span>
+                        </a>
+                        <Link
+                          href={`/products/${product.slug}`}
+                          className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] font-semibold text-zinc-400 hover:text-white transition-colors"
+                        >
+                          <span>View Product Details</span>
+                          <ArrowRight className="h-3 w-3" />
+                        </Link>
+                      </div>
                     ) : (
-                      <Link
-                        href={`/products/${product.slug}`}
-                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-xs font-bold text-zinc-950 hover:bg-amber-400 shadow-md shadow-amber-500/20 transition-all"
-                      >
-                        <span>View Details & Order</span>
-                        <ArrowRight className="h-4 w-4" />
-                      </Link>
+                      <div className="space-y-2">
+                        {hasValidWhatsApp ? (
+                          <a
+                            href={`https://wa.me/${cleanWhatsApp}?text=${encodeURIComponent(
+                              `Hello, I would like to order "${product.title}" (Price: ৳${priceBDT} BDT) from BEEEJOY.`
+                            )}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-500 py-3 text-xs font-bold text-zinc-950 hover:bg-amber-400 shadow-md shadow-amber-500/20 transition-all text-center"
+                          >
+                            <MessageCircle className="h-3.5 w-3.5" />
+                            <span>Order via WhatsApp</span>
+                          </a>
+                        ) : (
+                          <Link
+                            href={`/products/${product.slug}`}
+                            className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-500 py-3 text-xs font-bold text-zinc-950 hover:bg-amber-400 shadow-md shadow-amber-500/20 transition-all text-center"
+                          >
+                            <span>View Details & Order</span>
+                          </Link>
+                        )}
+                        <Link
+                          href={`/products/${product.slug}`}
+                          className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] font-semibold text-zinc-400 hover:text-white transition-colors"
+                        >
+                          <span>Full Overview & Video Demo</span>
+                          <ArrowRight className="h-3 w-3" />
+                        </Link>
+                      </div>
                     )}
-
-                    <Link
-                      href={`/products/${product.slug}`}
-                      className="text-center text-[11px] font-medium text-zinc-500 hover:text-zinc-300 py-1 transition-colors flex items-center justify-center gap-1"
-                    >
-                      <span>Full specifications & video</span>
-                      <ExternalLink className="h-3 w-3" />
-                    </Link>
                   </div>
                 </div>
               );
@@ -257,74 +315,48 @@ export default function HomePage() {
       </section>
 
       {/* Manual Payment Information Section */}
-      <section id="payments" className="w-full max-w-7xl px-6 py-16">
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-8 sm:p-12">
-          <div className="max-w-3xl">
-            <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Payment & Delivery</span>
-            <h2 className="mt-2 text-3xl font-bold text-white">How Premium Purchases Work</h2>
-            <p className="mt-3 text-sm text-zinc-400">
-              Simple, transparent manual purchase process without complicated checkout accounts:
-            </p>
+      <section id="payments" className="w-full max-w-7xl px-6 py-16 border-t border-zinc-900">
+        <div className="mx-auto max-w-3xl text-center">
+          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3.5 py-1 text-xs font-semibold text-amber-400 mb-4">
+            <CreditCard className="h-3.5 w-3.5" />
+            <span>Payment Methods</span>
+          </div>
+          <h2 className="text-3xl font-bold tracking-tight text-white">Manual bKash & Nagad Payments</h2>
+          <p className="mt-3 text-sm text-zinc-400 leading-relaxed">
+            For premium software, click <span className="text-amber-400 font-semibold">Order via WhatsApp</span> on any product.
+            You will be connected directly to the product seller who will share personal bKash/Nagad details and provide instant license delivery.
+          </p>
+        </div>
 
-            <div className="mt-8 space-y-6">
-              <div className="flex gap-4">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-sm font-bold text-amber-400 border border-amber-500/20">
-                  1
-                </span>
-                <div>
-                  <h4 className="text-sm font-semibold text-white">Choose Your Software</h4>
-                  <p className="mt-1 text-xs text-zinc-400">
-                    Browse our catalog. Free tools download instantly with 1-click. For premium tools, view the product details and price.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex gap-4">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-sm font-bold text-amber-400 border border-amber-500/20">
-                  2
-                </span>
-                <div>
-                  <h4 className="text-sm font-semibold text-white">Send Payment via bKash or Nagad</h4>
-                  <p className="mt-1 text-xs text-zinc-400">
-                    Send Money to our official numbers:
-                  </p>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2 text-xs">
-                    <div className="rounded-xl border border-pink-500/20 bg-pink-500/5 p-3">
-                      <span className="text-pink-400 font-bold block">bKash (Send Money / Personal)</span>
-                      <span className="text-white font-mono font-semibold mt-1 block">[Admin bKash Number]</span>
-                    </div>
-                    <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-3">
-                      <span className="text-orange-400 font-bold block">Nagad (Send Money / Personal)</span>
-                      <span className="text-white font-mono font-semibold mt-1 block">[Admin Nagad Number]</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-4">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-sm font-bold text-amber-400 border border-amber-500/20">
-                  3
-                </span>
-                <div>
-                  <h4 className="text-sm font-semibold text-white">Contact on WhatsApp for Delivery</h4>
-                  <p className="mt-1 text-xs text-zinc-400">
-                    Send your payment Transaction ID (TrxID) and the product name to WhatsApp at{" "}
-                    <span className="text-white font-mono font-semibold">[Admin WhatsApp Number]</span>. The admin will verify and send your software ZIP package file immediately.
-                  </p>
-                  <div className="mt-4">
-                    <a
-                      href="https://wa.me/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-emerald-500 transition-all shadow-md shadow-emerald-600/20"
-                    >
-                      <MessageCircle className="h-4 w-4" />
-                      <span>Chat with Admin on WhatsApp</span>
-                    </a>
-                  </div>
-                </div>
-              </div>
+        <div className="mt-12 grid gap-6 sm:grid-cols-3 max-w-4xl mx-auto">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-pink-500/10 text-pink-400 border border-pink-500/20 mb-4">
+              <span className="font-bold text-lg">bK</span>
             </div>
+            <h3 className="text-base font-bold text-white">bKash Personal</h3>
+            <p className="mt-1.5 text-xs text-zinc-400 leading-relaxed">
+              Send money directly via bKash personal wallet. Transaction verified on WhatsApp.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500/10 text-orange-400 border border-orange-500/20 mb-4">
+              <span className="font-bold text-lg">N</span>
+            </div>
+            <h3 className="text-base font-bold text-white">Nagad Personal</h3>
+            <p className="mt-1.5 text-xs text-zinc-400 leading-relaxed">
+              Fast money transfer via Nagad. Instant confirmation through direct chat.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 mb-4">
+              <ShieldCheck className="h-6 w-6" />
+            </div>
+            <h3 className="text-base font-bold text-white">Instant Delivery</h3>
+            <p className="mt-1.5 text-xs text-zinc-400 leading-relaxed">
+              After confirming your transaction ID, your download package and license key will be delivered immediately.
+            </p>
           </div>
         </div>
       </section>

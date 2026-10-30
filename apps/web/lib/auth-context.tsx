@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { insforge } from "./insforge";
-import { UserProfile } from "./types";
+import { UserProfile, Vendor } from "./types";
 
 interface User {
   id: string;
@@ -14,8 +14,10 @@ interface User {
 interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
+  vendor: Vendor | null;
   isLoading: boolean;
   isAdmin: boolean;
+  isSeller: boolean;
   isAuthModalOpen: boolean;
   authModalMode: "signin" | "signup";
   openAuthModal: (mode?: "signin" | "signup") => void;
@@ -32,6 +34,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [vendor, setVendor] = useState<Vendor | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<"signin" | "signup">("signin");
@@ -43,6 +46,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const closeAuthModal = useCallback(() => {
     setIsAuthModalOpen(false);
+  }, []);
+
+  const fetchVendor = useCallback(async (userId: string) => {
+    try {
+      const { data, error } = await insforge.database
+        .from("vendors")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (data && !error) {
+        setVendor(data as Vendor);
+      } else {
+        setVendor(null);
+      }
+    } catch {
+      setVendor(null);
+    }
   }, []);
 
   const fetchProfile = useCallback(async (userId: string, userEmail: string) => {
@@ -89,19 +110,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await insforge.auth.getCurrentUser();
       if (data?.user && !error) {
         setUser(data.user as User);
-        await fetchProfile(data.user.id, data.user.email);
+        await Promise.all([
+          fetchProfile(data.user.id, data.user.email),
+          fetchVendor(data.user.id),
+        ]);
       } else {
         setUser(null);
         setProfile(null);
+        setVendor(null);
       }
     } catch (err) {
       console.warn("Auth initialization error:", err);
       setUser(null);
       setProfile(null);
+      setVendor(null);
     } finally {
       setIsLoading(false);
     }
-  }, [fetchProfile]);
+  }, [fetchProfile, fetchVendor]);
 
   useEffect(() => {
     initAuth();
@@ -122,7 +148,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setUser(data.user as User);
-      await fetchProfile(data.user.id, data.user.email);
+      await Promise.all([
+        fetchProfile(data.user.id, data.user.email),
+        fetchVendor(data.user.id),
+      ]);
       closeAuthModal();
       return { success: true };
     } catch (err: any) {
@@ -150,7 +179,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data?.user) {
         setUser(data.user as User);
-        await fetchProfile(data.user.id, data.user.email);
+        await Promise.all([
+          fetchProfile(data.user.id, data.user.email),
+          fetchVendor(data.user.id),
+        ]);
         closeAuthModal();
         return { success: true };
       }
@@ -192,12 +224,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setUser(null);
       setProfile(null);
+      setVendor(null);
     }
   };
 
   const refreshProfile = async () => {
     if (user) {
-      await fetchProfile(user.id, user.email);
+      await Promise.all([
+        fetchProfile(user.id, user.email),
+        fetchVendor(user.id),
+      ]);
     }
   };
 
@@ -206,13 +242,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAdmin =
     user?.id === SINGLE_ADMIN_UUID && profile?.role === "admin";
 
+  // Seller access check: active vendor record in vendors table, or admin
+  const isSeller = Boolean(
+    (vendor?.status === "active") || isAdmin
+  );
+
   return (
     <AuthContext.Provider
       value={{
         user,
         profile,
+        vendor,
         isLoading,
         isAdmin,
+        isSeller,
         isAuthModalOpen,
         authModalMode,
         openAuthModal,
@@ -235,4 +278,27 @@ export function useAuth() {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
+}
+
+/**
+ * Resilient client-side access token retrieval.
+ * Tries getValidAccessToken() first, then falls back to refreshSession().
+ * Use this before making fetch() calls to API routes.
+ */
+export async function getClientAccessToken(): Promise<string | null> {
+  try {
+    const token = await insforge.getHttpClient().getValidAccessToken();
+    if (token && token !== "undefined" && token !== "null") return token;
+  } catch {
+    // ignore and try refresh
+  }
+
+  try {
+    const { data } = await insforge.auth.refreshSession();
+    if (data?.accessToken) return data.accessToken;
+  } catch {
+    // ignore
+  }
+
+  return null;
 }
