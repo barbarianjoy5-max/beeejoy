@@ -31,14 +31,14 @@ export default function CheckoutModal({ product, isOpen, onClose }: CheckoutModa
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [orderSuccess, setOrderSuccess] = useState<{ orderNumber: string; orderId: string } | null>(null);
-  const [copiedAccount, setCopiedAccount] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   if (!isOpen || !product) return null;
 
   const accounts = {
     bkash: {
       name: "bKash Personal",
-      number: "01755-998877",
+      number: "01876603607",
       type: "Send Money",
       instructions: "Go to your bKash app -> Send Money -> Enter number -> Enter amount -> Save TrxID.",
     },
@@ -49,19 +49,21 @@ export default function CheckoutModal({ product, isOpen, onClose }: CheckoutModa
       instructions: "Go to your Nagad app -> Send Money -> Enter number -> Enter amount -> Save TrxID.",
     },
     bank: {
-      name: "City Bank Ltd.",
-      number: "1102-8877-6655-001",
-      type: "BEEEJOY Technologies Ltd.",
-      instructions: "Transfer to City Bank A/C -> Branch: Gulshan -> Enter Trx/Deposit Ref below.",
+      name: "Dutch-Bangla Bank PLC",
+      number: "1641570006797",
+      accountNumber: "1641570006797",
+      routingNumber: "090263136",
+      swiftCode: "DBBLBDDH164",
+      instructions: "Transfer via BEFTN, NPSB, DBBL Rocket or Branch -> Enter Trx/Deposit Ref below.",
     },
   };
 
   const currentAccount = accounts[paymentChannel];
 
-  const handleCopy = (text: string) => {
+  const handleCopy = (text: string, key: string = "default") => {
     navigator.clipboard.writeText(text);
-    setCopiedAccount(true);
-    setTimeout(() => setCopiedAccount(false), 2000);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -254,13 +256,13 @@ export default function CheckoutModal({ product, isOpen, onClose }: CheckoutModa
                     key={method}
                     type="button"
                     onClick={() => setPaymentChannel(method)}
-                    className={`rounded-xl border py-2 text-xs font-bold capitalize transition-all ${
+                    className={`rounded-xl border py-2 text-xs font-bold transition-all ${
                       paymentChannel === method
                         ? "border-amber-500 bg-amber-500/10 text-amber-400 shadow-sm"
                         : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:border-zinc-700 hover:text-white"
                     }`}
                   >
-                    {method}
+                    {method === "bank" ? "Dutch-Bangla Bank" : method === "bkash" ? "bKash" : "Nagad"}
                   </button>
                 ))}
               </div>
@@ -268,25 +270,93 @@ export default function CheckoutModal({ product, isOpen, onClose }: CheckoutModa
 
             {/* Account Info Box */}
             <div className="mb-4 rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-3.5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] font-medium text-zinc-500">{currentAccount.name}</span>
-                  <div className="text-sm font-bold font-mono text-amber-400 mt-0.5">
-                    {currentAccount.number}
+              {paymentChannel === "bank" ? (
+                <div className="space-y-2.5">
+                  <div className="border-b border-zinc-800/80 pb-2">
+                    <span className="text-[11px] font-medium text-zinc-500">Bank Name</span>
+                    <div className="text-sm font-bold text-white mt-0.5">
+                      {accounts.bank.name}
+                    </div>
                   </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-medium text-zinc-500">Account Number</span>
+                      <div className="text-sm font-bold font-mono text-amber-400 mt-0.5">
+                        {accounts.bank.accountNumber}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(accounts.bank.accountNumber, "bank_acc")}
+                      className="flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] text-zinc-300 hover:text-white transition-colors"
+                    >
+                      {copiedKey === "bank_acc" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                      <span>{copiedKey === "bank_acc" ? "Copied" : "Copy"}</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-medium text-zinc-500">Routing Number</span>
+                      <div className="text-xs font-bold font-mono text-zinc-200 mt-0.5">
+                        {accounts.bank.routingNumber}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(accounts.bank.routingNumber, "bank_routing")}
+                      className="flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] text-zinc-300 hover:text-white transition-colors"
+                    >
+                      {copiedKey === "bank_routing" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                      <span>{copiedKey === "bank_routing" ? "Copied" : "Copy"}</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-medium text-zinc-500">SWIFT Code</span>
+                      <div className="text-xs font-bold font-mono text-zinc-200 mt-0.5">
+                        {accounts.bank.swiftCode}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(accounts.bank.swiftCode, "bank_swift")}
+                      className="flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] text-zinc-300 hover:text-white transition-colors"
+                    >
+                      {copiedKey === "bank_swift" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                      <span>{copiedKey === "bank_swift" ? "Copied" : "Copy"}</span>
+                    </button>
+                  </div>
+
+                  <p className="pt-1 text-[11px] text-zinc-400 leading-relaxed border-t border-zinc-800/80">
+                    {accounts.bank.instructions}
+                  </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleCopy(currentAccount.number.replace(/-/g, ""))}
-                  className="flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] text-zinc-300 hover:text-white transition-colors"
-                >
-                  {copiedAccount ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                  <span>{copiedAccount ? "Copied" : "Copy"}</span>
-                </button>
-              </div>
-              <p className="mt-2 text-[11px] text-zinc-400 leading-relaxed">
-                {currentAccount.instructions}
-              </p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-medium text-zinc-500">{currentAccount.name}</span>
+                      <div className="text-sm font-bold font-mono text-amber-400 mt-0.5">
+                        {currentAccount.number}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(currentAccount.number.replace(/-/g, ""), "mobile")}
+                      className="flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] text-zinc-300 hover:text-white transition-colors"
+                    >
+                      {copiedKey === "mobile" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                      <span>{copiedKey === "mobile" ? "Copied" : "Copy"}</span>
+                    </button>
+                  </div>
+                  <p className="mt-2 text-[11px] text-zinc-400 leading-relaxed border-t border-zinc-800/80 pt-2">
+                    {currentAccount.instructions}
+                  </p>
+                </>
+              )}
             </div>
 
             {/* Submission Error */}

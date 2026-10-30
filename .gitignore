@@ -28,3 +28,8 @@ build/
 dist/
 *.log
 
+# Scratch and local diagnostics
+*.patch
+deploy.ps1
+gcm_*.txt
+

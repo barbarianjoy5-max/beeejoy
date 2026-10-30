@@ -1,0 +1,50 @@
+name: Deploy BEEEJOY to InsForge
+
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: deploy-master
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      NEXT_PUBLIC_INSFORGE_URL: ${{ vars.NEXT_PUBLIC_INSFORGE_URL || 'https://js5krty8.ap-southeast.insforge.app' }}
+      NEXT_PUBLIC_INSFORGE_ANON_KEY: ${{ vars.NEXT_PUBLIC_INSFORGE_ANON_KEY || 'anon_2ddd398204711b47a91ce95a6fc921621b8d0568123794c035763bdf8dbb30db' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Verify production build
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Authenticate with InsForge CLI
+        run: npx -y @insforge/cli@0.2.8 login --user-api-key "${{ secrets.INSFORGE_USER_API_KEY }}"
+
+      - name: Link InsForge project
+        run: npx -y @insforge/cli@0.2.8 link --project-id 24d8903d-beb9-4025-abad-06cc0f5644bf
+
+      - name: Deploy to InsForge
+        run: |
+          DEPLOY_ENV=$(node -e 'console.log(JSON.stringify({NEXT_PUBLIC_INSFORGE_URL: process.env.NEXT_PUBLIC_INSFORGE_URL, NEXT_PUBLIC_INSFORGE_ANON_KEY: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY}))')
+          npx -y @insforge/cli@0.2.8 deployments deploy apps/web --env "$DEPLOY_ENV"

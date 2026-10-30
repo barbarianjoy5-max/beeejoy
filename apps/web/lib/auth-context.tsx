@@ -22,6 +22,7 @@ interface AuthContextType {
   closeAuthModal: () => void;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signUp: (email: string, password: string, fullName?: string) => Promise<{ success: boolean; error?: string; requireVerification?: boolean }>;
+  signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -167,6 +168,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const signInWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const redirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
+      if (!redirectTo) {
+        return { success: false, error: "Redirect URL unavailable." };
+      }
+      const { error } = await insforge.auth.signInWithOAuth("google", { redirectTo });
+      if (error) {
+        return { success: false, error: error.message || "Could not start Google sign in." };
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Google sign in failed. Please try again." };
+    }
+  };
+
   const signOut = async () => {
     try {
       await insforge.auth.signOut();
@@ -199,6 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         closeAuthModal,
         signIn,
         signUp,
+        signInWithGoogle,
         signOut,
         refreshProfile,
       }}
