@@ -112,25 +112,27 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
         <span>Back to Software Catalog</span>
       </Link>
 
-      {/* Cover Banner */}
-      <div className="relative w-full overflow-hidden rounded-3xl border border-zinc-800">
-        {vendor.cover_url ? (
-          <div className="aspect-[5/1] w-full overflow-hidden">
-            <img
-              src={vendor.cover_url}
-              alt={vendor.store_name}
-              className="w-full h-full object-cover"
-            />
-          </div>
-        ) : (
-          <div className="aspect-[5/1] sm:aspect-[6/1] w-full bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-amber-500/15 via-zinc-900/60 to-zinc-950" />
-        )}
+      {/* Cover Banner & Overlapping Avatar */}
+      <div className="relative w-full mb-16 sm:mb-20">
+        <div className="relative w-full overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950">
+          {vendor.cover_url ? (
+            <div className="aspect-[5/1] w-full overflow-hidden">
+              <img
+                src={vendor.cover_url}
+                alt={vendor.store_name}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          ) : (
+            <div className="aspect-[5/1] sm:aspect-[6/1] w-full bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-amber-500/15 via-zinc-900/60 to-zinc-950" />
+          )}
+        </div>
 
-        {/* Circular avatar overlapping cover bottom-left */}
-        <div className="absolute bottom-0 left-6 sm:left-8 translate-y-1/2">
-          <div className="relative h-24 w-24 sm:h-28 sm:w-28 rounded-full border-4 border-zinc-950 bg-zinc-800 overflow-hidden shadow-2xl shadow-black/40">
+        {/* Circular avatar overlapping cover centered */}
+        <div className="absolute -bottom-12 sm:-bottom-14 left-1/2 -translate-x-1/2 z-10">
+          <div className="h-24 w-24 sm:h-28 sm:w-28 rounded-full border-4 border-zinc-950 bg-zinc-800 overflow-hidden shadow-2xl shadow-black/50">
             {vendor.avatar_url ? (
-              <img src={vendor.avatar_url} alt={vendor.store_name} className="h-full w-full object-cover" />
+              <img src={vendor.avatar_url} alt={vendor.store_name} className="h-full w-full object-cover object-center" />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-400 to-amber-600 text-3xl font-black text-zinc-950">
                 {initials}
@@ -140,30 +142,42 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Identity Row */}
-      <div className="mt-16 sm:mt-18 flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 border-b border-zinc-800/80">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white">{vendor.store_name}</h1>
-            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-400 uppercase tracking-wide">
-              Verified Seller
-            </span>
-          </div>
-          <p className="font-mono text-xs text-amber-400/90 mt-0.5">@{vendor.slug}</p>
-          {vendor.bio && (
-            <p className="mt-2 text-sm text-zinc-300 max-w-2xl leading-relaxed">{vendor.bio}</p>
-          )}
-          <div className="flex items-center gap-4 text-[11px] text-zinc-500 mt-3 flex-wrap">
-            <span className="flex items-center gap-1">
-              <Calendar className="h-3 w-3" />
-              <span>Member since {new Date(vendor.created_at).toLocaleDateString()}</span>
-            </span>
-            <span>&bull;</span>
-            <span className="flex items-center gap-1 text-zinc-400 font-semibold">
-              <Package className="h-3 w-3 text-amber-400" />
-              <span>{products.length} Published {products.length === 1 ? "Product" : "Products"}</span>
-            </span>
-          </div>
+      {/* Identity Section (Centered) */}
+      <div className="flex flex-col items-center text-center pb-6 border-b border-zinc-800/80">
+        {/* Store Name */}
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+          {vendor.store_name}
+        </h1>
+
+        {/* Verified Seller | @username */}
+        <div className="flex items-center justify-center gap-2.5 mt-2">
+          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-400 uppercase tracking-wide">
+            Verified Seller
+          </span>
+          <span className="text-zinc-600 text-xs select-none">|</span>
+          <span className="font-mono text-xs font-semibold text-amber-400">
+            @{vendor.slug}
+          </span>
+        </div>
+
+        {/* Bio */}
+        {vendor.bio && (
+          <p className="mt-3 text-sm text-zinc-300 max-w-2xl leading-relaxed">
+            {vendor.bio}
+          </p>
+        )}
+
+        {/* Store Information / Stats */}
+        <div className="flex items-center justify-center gap-4 text-[11px] text-zinc-500 mt-4 flex-wrap">
+          <span className="flex items-center gap-1">
+            <Calendar className="h-3 w-3" />
+            <span>Member since {new Date(vendor.created_at).toLocaleDateString()}</span>
+          </span>
+          <span>&bull;</span>
+          <span className="flex items-center gap-1 text-zinc-400 font-semibold">
+            <Package className="h-3 w-3 text-amber-400" />
+            <span>{products.length} Published {products.length === 1 ? "Product" : "Products"}</span>
+          </span>
         </div>
       </div>
 

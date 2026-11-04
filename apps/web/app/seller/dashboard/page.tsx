@@ -1310,26 +1310,28 @@ export default function SellerDashboardPage() {
             <div className="mb-6">
               <span className="block text-xs font-bold uppercase text-zinc-400 mb-2">Cover Photo</span>
               {/* Cover preview / placeholder */}
-              <div className="relative w-full aspect-[4/1] rounded-2xl overflow-hidden border border-zinc-800 bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950 mb-3">
-                {!removeCover && (coverPreview || profileCoverUrl) ? (
-                  <img
-                    src={coverPreview || profileCoverUrl}
-                    alt="Cover"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center">
-                    <ImageIcon className="h-10 w-10 text-zinc-700" />
-                  </div>
-                )}
-                {/* Avatar overlapping cover */}
-                <div className="absolute bottom-0 left-6 translate-y-1/2">
-                  <div className="relative h-20 w-20 rounded-full border-4 border-zinc-900 bg-zinc-800 overflow-hidden shadow-xl">
+              <div className="relative w-full mb-12">
+                <div className="relative w-full aspect-[4/1] rounded-2xl overflow-hidden border border-zinc-800 bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950">
+                  {!removeCover && (coverPreview || profileCoverUrl) ? (
+                    <img
+                      src={coverPreview || profileCoverUrl}
+                      alt="Cover"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center">
+                      <ImageIcon className="h-10 w-10 text-zinc-700" />
+                    </div>
+                  )}
+                </div>
+                {/* Avatar overlapping cover centered without being clipped */}
+                <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 z-10">
+                  <div className="h-20 w-20 rounded-full border-4 border-zinc-900 bg-zinc-800 overflow-hidden shadow-xl">
                     {!removeAvatar && (avatarPreview || profileAvatarUrl) ? (
                       <img
                         src={avatarPreview || profileAvatarUrl}
                         alt="Avatar"
-                        className="h-full w-full object-cover"
+                        className="h-full w-full object-cover object-center"
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-400 to-amber-600 text-2xl font-black text-zinc-950">
@@ -1360,12 +1362,12 @@ export default function SellerDashboardPage() {
             </div>
 
             {/* Avatar section (below cover preview) */}
-            <div className="pt-10 mb-6">
+            <div className="pt-2 mb-6">
               <span className="block text-xs font-bold uppercase text-zinc-400 mb-2">Profile Picture</span>
               <div className="flex items-center gap-4">
                 <div className="h-16 w-16 rounded-full border-2 border-zinc-700 bg-zinc-800 overflow-hidden shrink-0">
                   {!removeAvatar && (avatarPreview || profileAvatarUrl) ? (
-                    <img src={avatarPreview || profileAvatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+                    <img src={avatarPreview || profileAvatarUrl} alt="Avatar" className="h-full w-full object-cover object-center" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-400 to-amber-600 text-xl font-black text-zinc-950">
                       {profileStoreName?.charAt(0)?.toUpperCase() || "S"}
