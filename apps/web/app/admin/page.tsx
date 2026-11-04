@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth, getClientAccessToken } from "../../lib/auth-context";
 import { insforge } from "../../lib/insforge";
-import { Product } from "../../lib/types";
+import { Product, formatPrice } from "../../lib/types";
 import { getYouTubeVideoId, getYouTubeEmbedUrl } from "../../lib/youtube";
 import {
   Package,
@@ -45,6 +45,7 @@ export default function AdminDashboardPage() {
   // Pending reviews state
   const [pendingProducts, setPendingProducts] = useState<any[]>([]);
   const [loadingReviews, setLoadingReviews] = useState(false);
+  const [reviewVideoPreviews, setReviewVideoPreviews] = useState<Record<string, string>>({});
 
   // Sellers state
   const [sellers, setSellers] = useState<any[]>([]);
@@ -56,6 +57,7 @@ export default function AdminDashboardPage() {
   const [productSlug, setProductSlug] = useState("");
   const [productDescription, setProductDescription] = useState("");
   const [productType, setProductType] = useState<"free" | "premium">("free");
+  const [productCurrency, setProductCurrency] = useState<"BDT" | "USD">("BDT");
   const [productPriceBdt, setProductPriceBdt] = useState("999");
   const [whatsappNumber, setWhatsappNumber] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -96,7 +98,27 @@ export default function AdminDashboardPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) setPendingProducts(data.products || []);
+      if (res.ok) {
+        const prods = data.products || [];
+        setPendingProducts(prods);
+
+        // Fetch signed URLs for products with pending_video_path
+        prods.forEach(async (p: any) => {
+          if (p.metadata?.pending_video_path) {
+            try {
+              const vRes = await fetch(`/api/admin/video-preview?productId=${p.id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              const vData = await vRes.json();
+              if (vRes.ok && vData.previewUrl) {
+                setReviewVideoPreviews((prev) => ({ ...prev, [p.id]: vData.previewUrl }));
+              }
+            } catch (err) {
+              console.warn("Failed to load video preview for", p.id, err);
+            }
+          }
+        });
+      }
     } catch (err) {
       console.warn("Failed to load pending reviews:", err);
     } finally {
@@ -158,6 +180,7 @@ export default function AdminDashboardPage() {
     setProductSlug("");
     setProductDescription("");
     setProductType("free");
+    setProductCurrency("BDT");
     setProductPriceBdt("999");
     setWhatsappNumber("");
     setYoutubeUrl("");
@@ -175,6 +198,7 @@ export default function AdminDashboardPage() {
     setProductSlug(prod.slug);
     setProductDescription(prod.description || "");
     setProductType(prod.product_type === "premium" ? "premium" : "free");
+    setProductCurrency(prod.currency === "USD" ? "USD" : "BDT");
     setProductPriceBdt((prod.price_cents / 100).toString());
     setWhatsappNumber(prod.metadata?.whatsapp_number || "");
     setYoutubeUrl(prod.metadata?.youtube_url || "");
@@ -263,6 +287,7 @@ export default function AdminDashboardPage() {
             description: productDescription.trim() || null,
             product_type: productType,
             price_cents: priceCents,
+            currency: productCurrency,
             status: isPublished ? "published" : "draft",
             thumbnail_url: finalThumbnailUrl,
             metadata: metadataPayload,
@@ -281,7 +306,7 @@ export default function AdminDashboardPage() {
               description: productDescription.trim() || null,
               product_type: productType,
               price_cents: priceCents,
-              currency: "BDT",
+              currency: productCurrency,
               status: isPublished ? "published" : "draft",
               thumbnail_url: finalThumbnailUrl,
               metadata: metadataPayload,
@@ -621,9 +646,11 @@ export default function AdminDashboardPage() {
             <div className="grid gap-6">
               {pendingProducts.map((p) => {
                 const isPremium = p.product_type === "premium";
-                const priceBDT = p.price_cents ? (p.price_cents / 100).toLocaleString() : "0";
+                const priceFormatted = formatPrice(p.price_cents || 0, p.currency || "BDT");
+                const currencyLabel = p.currency || "BDT";
                 const sellerName = p.vendor?.store_name || "Unknown Seller";
                 const sellerSlug = p.vendor?.slug || "";
+                const videoPreviewUrl = reviewVideoPreviews[p.id];
 
                 return (
                   <div
@@ -670,7 +697,7 @@ export default function AdminDashboardPage() {
 
                       <div className="text-right">
                         <span className="text-xl font-black text-amber-400">
-                          {isPremium ? `৳ ${priceBDT} BDT` : "FREE"}
+                          {isPremium ? `${priceFormatted} ${currencyLabel}` : "FREE"}
                         </span>
                         <span className="text-[10px] text-zinc-500 block uppercase font-bold">
                           {p.product_type}
@@ -691,16 +718,21 @@ export default function AdminDashboardPage() {
                         </span>
                       </div>
                       <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
-                        <span className="text-[10px] text-zinc-500 uppercase font-bold block">YouTube Demo</span>
+                        <span className="text-[10px] text-zinc-500 uppercase font-bold block">Demo Video</span>
                         <span className="text-zinc-300 truncate block">
-                          {p.metadata?.youtube_url ? (
+                          {videoPreviewUrl ? (
+                            <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                              <Video className="h-3 w-3" />
+                              <span>Uploaded Video (Ready to inspect below)</span>
+                            </span>
+                          ) : p.metadata?.youtube_url ? (
                             <a
                               href={p.metadata.youtube_url}
                               target="_blank"
                               rel="noreferrer"
                               className="text-amber-400 hover:underline flex items-center gap-1"
                             >
-                              <span>Watch Demo Video</span>
+                              <span>Watch YouTube Video</span>
                               <ExternalLink className="h-3 w-3" />
                             </a>
                           ) : (
@@ -726,6 +758,41 @@ export default function AdminDashboardPage() {
                         </span>
                       </div>
                     </div>
+
+                    {/* Video Player Inspection (if uploaded video preview is available) */}
+                    {videoPreviewUrl && (
+                      <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 space-y-2">
+                        <span className="text-[10px] text-zinc-400 uppercase font-bold block flex items-center gap-1.5">
+                          <Video className="h-3.5 w-3.5 text-amber-400" />
+                          <span>Private Staged Video Preview (Admin Protected)</span>
+                        </span>
+                        <div className="aspect-video max-w-lg rounded-xl overflow-hidden border border-zinc-800 bg-black">
+                          <video
+                            src={videoPreviewUrl}
+                            controls
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* YouTube Embed Inspection */}
+                    {!videoPreviewUrl && p.metadata?.youtube_url && getYouTubeEmbedUrl(p.metadata.youtube_url) && (
+                      <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 space-y-2">
+                        <span className="text-[10px] text-zinc-400 uppercase font-bold block flex items-center gap-1.5">
+                          <Video className="h-3.5 w-3.5 text-rose-400" />
+                          <span>YouTube Demo Preview</span>
+                        </span>
+                        <div className="aspect-video max-w-lg rounded-xl overflow-hidden border border-zinc-800">
+                          <iframe
+                            src={getYouTubeEmbedUrl(p.metadata.youtube_url) || ""}
+                            title="YouTube Preview"
+                            className="w-full h-full"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-end gap-3 pt-2">
                       <button
@@ -963,17 +1030,29 @@ export default function AdminDashboardPage() {
 
                   <div>
                     <label className="block font-bold uppercase text-zinc-400 mb-1.5">
-                      Price in BDT (৳) {productType === "premium" && <span className="text-rose-400">*</span>}
+                      Price & Currency {productType === "premium" && <span className="text-rose-400">*</span>}
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      disabled={productType === "free"}
-                      value={productType === "free" ? "0" : productPriceBdt}
-                      onChange={(e) => setProductPriceBdt(e.target.value)}
-                      placeholder="999"
-                      className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-2.5 text-zinc-100 disabled:opacity-40 focus:border-amber-500 focus:outline-none font-mono"
-                    />
+                    <div className="flex items-center rounded-xl border border-zinc-700 bg-zinc-950 overflow-hidden">
+                      <select
+                        disabled={productType === "free"}
+                        value={productCurrency}
+                        onChange={(e) => setProductCurrency(e.target.value as "BDT" | "USD")}
+                        className="bg-zinc-900 text-zinc-200 text-xs font-bold px-2.5 py-2.5 border-r border-zinc-800 focus:outline-none disabled:opacity-40"
+                      >
+                        <option value="BDT">BDT (৳)</option>
+                        <option value="USD">USD ($)</option>
+                      </select>
+                      <input
+                        type="number"
+                        step={productCurrency === "USD" ? "0.01" : "1"}
+                        min="0"
+                        disabled={productType === "free"}
+                        value={productType === "free" ? "0" : productPriceBdt}
+                        onChange={(e) => setProductPriceBdt(e.target.value)}
+                        placeholder="999"
+                        className="w-full bg-transparent px-3 py-2.5 text-zinc-100 disabled:opacity-40 focus:outline-none font-mono text-sm"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -1161,7 +1240,7 @@ export default function AdminDashboardPage() {
                             <span className="font-mono text-zinc-500">/{prod.slug}</span>
                             <span>&bull;</span>
                             <span className="capitalize font-semibold text-zinc-300">
-                              {isFree ? "Free Download" : `৳ ${priceStr} BDT`}
+                              {isFree ? "Free Download" : `${formatPrice(prod.price_cents || 0, prod.currency || "BDT")} ${prod.currency || "BDT"}`}
                             </span>
                             {prod.metadata?.whatsapp_number && (
                               <>

@@ -19,7 +19,19 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Seller profile not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ vendor });
+    // Also fetch avatar_url from profiles
+    const { data: userProfile } = await adminDb.database
+      .from("profiles")
+      .select("avatar_url")
+      .eq("id", auth.user.id)
+      .maybeSingle();
+
+    return NextResponse.json({
+      vendor: {
+        ...vendor,
+        avatar_url: userProfile?.avatar_url || null,
+      },
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Internal server error" }, { status: 500 });
   }
@@ -57,7 +69,8 @@ export async function PUT(req: NextRequest) {
     const storeName = typeof body.storeName === "string" ? body.storeName.trim() : existingVendor.store_name;
     const rawSlug = typeof body.slug === "string" ? body.slug.trim() : existingVendor.slug;
     const bio = typeof body.bio === "string" ? body.bio.trim() : existingVendor.bio;
-    const coverUrl = typeof body.coverUrl === "string" ? body.coverUrl.trim() : existingVendor.cover_url;
+    const coverUrl = body.coverUrl !== undefined ? (typeof body.coverUrl === "string" ? body.coverUrl.trim() || null : null) : existingVendor.cover_url;
+    const avatarUrl = body.avatarUrl !== undefined ? (typeof body.avatarUrl === "string" ? body.avatarUrl.trim() || null : null) : undefined;
 
     if (!storeName) {
       return NextResponse.json({ error: "Store/Seller name is required" }, { status: 400 });
@@ -100,7 +113,7 @@ export async function PUT(req: NextRequest) {
         store_name: storeName,
         slug: cleanSlug,
         bio: bio || null,
-        cover_url: coverUrl || null,
+        cover_url: coverUrl,
         updated_at: new Date().toISOString(),
       })
       .eq("id", existingVendor.id)
@@ -114,10 +127,24 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    // 4. Update avatar_url in profiles if provided
+    if (avatarUrl !== undefined) {
+      await adminDb.database
+        .from("profiles")
+        .update({
+          avatar_url: avatarUrl,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", auth.user.id);
+    }
+
     return NextResponse.json({
       success: true,
       message: "Seller profile updated successfully",
-      vendor: updatedVendor,
+      vendor: {
+        ...updatedVendor,
+        avatar_url: avatarUrl !== undefined ? avatarUrl : null,
+      },
     });
   } catch (err: any) {
     console.error("Seller profile update error:", err);

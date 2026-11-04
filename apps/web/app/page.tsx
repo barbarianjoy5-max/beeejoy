@@ -16,7 +16,7 @@ import {
   Store,
 } from "lucide-react";
 import { insforge } from "../lib/insforge";
-import { Product, PublicVendor } from "../lib/types";
+import { Product, PublicVendor, formatPrice, formatOrderMessage } from "../lib/types";
 
 export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -178,11 +178,14 @@ export default function HomePage() {
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {filteredProducts.map((product) => {
               const isFree = product.product_type === "free";
-              const priceBDT = product.price_cents ? (product.price_cents / 100).toLocaleString("en-BD") : "0";
+              const priceFormatted = formatPrice(product.price_cents || 0, product.currency || "BDT");
               const cleanWhatsApp = product.metadata?.whatsapp_number
                 ? String(product.metadata.whatsapp_number).replace(/[\s\+\-\(\)]/g, "").trim()
                 : null;
               const hasValidWhatsApp = Boolean(cleanWhatsApp && /^[0-9]{7,15}$/.test(cleanWhatsApp));
+              const orderMessage = encodeURIComponent(
+                formatOrderMessage(product.title, product.price_cents || 0, product.currency || "BDT")
+              );
 
               return (
                 <div
@@ -248,8 +251,8 @@ export default function HomePage() {
                           <span className="text-2xl font-black text-emerald-400">Free</span>
                         ) : (
                           <>
-                            <span className="text-2xl font-black text-amber-400">৳ {priceBDT}</span>
-                            <span className="text-xs text-zinc-500">BDT</span>
+                            <span className="text-2xl font-black text-amber-400">{priceFormatted}</span>
+                            <span className="text-xs text-zinc-500">{product.currency || "BDT"}</span>
                           </>
                         )}
                       </div>
@@ -279,9 +282,7 @@ export default function HomePage() {
                       <div className="space-y-2">
                         {hasValidWhatsApp ? (
                           <a
-                            href={`https://wa.me/${cleanWhatsApp}?text=${encodeURIComponent(
-                              `Hello, I would like to order "${product.title}" (Price: ৳${priceBDT} BDT) from BEEEJOY.`
-                            )}`}
+                            href={`https://wa.me/${cleanWhatsApp}?text=${orderMessage}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-500 py-3 text-xs font-bold text-zinc-950 hover:bg-amber-400 shadow-md shadow-amber-500/20 transition-all text-center"

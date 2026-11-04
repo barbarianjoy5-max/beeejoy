@@ -12,6 +12,7 @@ export interface Vendor {
   slug: string;
   bio: string | null;
   cover_url: string | null;
+  avatar_url?: string | null;
   status: VendorStatus;
   commission_rate: number;
   payout_info?: Record<string, any>;
@@ -25,6 +26,7 @@ export interface PublicVendor {
   slug: string;
   bio: string | null;
   cover_url: string | null;
+  avatar_url?: string | null;
   created_at: string;
 }
 
@@ -60,6 +62,8 @@ export interface Product {
   metadata?: {
     youtube_url?: string;
     whatsapp_number?: string;
+    demo_video_path?: string;
+    pending_video_path?: string;
     min_illustrator_version?: string;
     max_illustrator_version?: string;
     cep_version?: string;
@@ -70,6 +74,29 @@ export interface Product {
   is_featured: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Format a price from cents with correct currency symbol.
+ * currency = "BDT" → ৳1,000 BDT
+ * currency = "USD" → $10.00 USD
+ */
+export function formatPrice(priceCents: number, currency: string): string {
+  const amount = priceCents / 100;
+  if (currency === "USD") {
+    return `$${amount.toFixed(2)}`;
+  }
+  // Default BDT
+  return `৳${amount.toLocaleString("en-BD")}`;
+}
+
+/**
+ * Format a WhatsApp order message with correct currency.
+ */
+export function formatOrderMessage(title: string, priceCents: number, currency: string): string {
+  const priceStr = formatPrice(priceCents, currency);
+  const currencyLabel = currency === "USD" ? "USD" : "BDT";
+  return `Hello, I would like to order "${title}" (Price: ${priceStr} ${currencyLabel}) from BEEEJOY.`;
 }
 
 export interface SoftwareRelease {

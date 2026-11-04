@@ -74,6 +74,77 @@ export async function POST(req: NextRequest) {
     if (decision === "approve") {
       delete metadataPayload.admin_feedback;
 
+      // Check if there is a pending video that needs promotion from private storage
+      const pendingVideoPath = metadataPayload.pending_video_path;
+      if (pendingVideoPath) {
+        try {
+          // 1. Download video blob from private software-packages bucket
+          const { data: videoBlob, error: dlErr } = await admin.adminDb.storage
+            .from("software-packages")
+            .download(pendingVideoPath);
+
+          if (dlErr || !videoBlob) {
+            console.error("Failed to download pending video:", dlErr);
+            throw new Error(`Failed to retrieve pending video: ${dlErr?.message || "file not found"}`);
+          }
+
+          // Server-side validation: Max 200MB limit & allowed video types
+          if (videoBlob.size > 200 * 1024 * 1024) {
+            throw new Error("Video size exceeds the 200MB limit.");
+          }
+
+          const extMatch = pendingVideoPath.match(/\.(mp4|webm|mov)$/i);
+          if (!extMatch) {
+            throw new Error("Invalid video format. Only MP4, WebM, and MOV are supported.");
+          }
+          const ext = extMatch[1].toLowerCase();
+          const publicVideoPath = `videos/${product.slug}-${Date.now()}.${ext}`;
+
+          const { error: upErr } = await admin.adminDb.storage
+            .from("public-assets")
+            .upload(publicVideoPath, videoBlob);
+
+          if (upErr) {
+            console.error("Failed to upload video to public-assets:", upErr);
+            throw new Error(`Failed to publish video: ${upErr.message}`);
+          }
+
+          const { data: urlData } = admin.adminDb.storage
+            .from("public-assets")
+            .getPublicUrl(publicVideoPath);
+
+          const newPublicVideoUrl = urlData?.publicUrl || null;
+
+          // 3. Delete old published video from public-assets if one existed
+          const oldPublishedUrl = metadataPayload.demo_video_path;
+          if (oldPublishedUrl && typeof oldPublishedUrl === "string") {
+            const oldPathMatch = oldPublishedUrl.match(/videos\/[^?#]+/);
+            if (oldPathMatch) {
+              await admin.adminDb.storage
+                .from("public-assets")
+                .remove([oldPathMatch[0]])
+                .catch((e: any) => console.warn("Old video cleanup warning:", e));
+            }
+          }
+
+          // 4. Update metadata: assign demo_video_path and remove pending_video_path
+          metadataPayload.demo_video_path = newPublicVideoUrl;
+          delete metadataPayload.pending_video_path;
+
+          // 5. Remove private staging file from software-packages
+          await admin.adminDb.storage
+            .from("software-packages")
+            .remove([pendingVideoPath])
+            .catch((e: any) => console.warn("Pending video cleanup warning:", e));
+        } catch (videoErr: any) {
+          console.error("Video promotion error during approval:", videoErr);
+          return NextResponse.json(
+            { error: `Video publishing failed: ${videoErr?.message || "Storage error"}` },
+            { status: 500 }
+          );
+        }
+      }
+
       const { error: updErr } = await admin.adminDb.database
         .from("products")
         .update({

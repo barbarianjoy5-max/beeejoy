@@ -9,13 +9,21 @@ import {
   Download,
   MessageCircle,
   ExternalLink,
-  Sparkles,
   Calendar,
-  AlertCircle,
   Package,
+  User,
 } from "lucide-react";
-import { insforge } from "../../../lib/insforge";
-import { Product, PublicVendor } from "../../../lib/types";
+import { Product, formatPrice } from "../../../lib/types";
+
+interface PublicVendorData {
+  id: string;
+  store_name: string;
+  slug: string;
+  bio: string | null;
+  cover_url: string | null;
+  avatar_url: string | null;
+  created_at: string;
+}
 
 interface PageProps {
   params: Promise<{ username: string }>;
@@ -23,7 +31,7 @@ interface PageProps {
 
 export default function PublicSellerProfilePage({ params }: PageProps) {
   const { username } = use(params);
-  const [vendor, setVendor] = useState<PublicVendor | null>(null);
+  const [vendor, setVendor] = useState<PublicVendorData | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -32,31 +40,18 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
     async function loadSellerProfile() {
       try {
         setIsLoading(true);
-        // 1. Fetch vendor from safe public_vendors view
-        const { data: vendorData, error: vErr } = await insforge.database
-          .from("public_vendors")
-          .select("id, store_name, slug, bio, cover_url, created_at")
-          .eq("slug", username)
-          .maybeSingle();
-
-        if (vErr || !vendorData) {
+        const res = await fetch(`/api/sellers/${username}`);
+        if (!res.ok) {
           setNotFound(true);
           return;
         }
-
-        setVendor(vendorData as PublicVendor);
-
-        // 2. Fetch published products belonging to this seller
-        const { data: prodsData, error: pErr } = await insforge.database
-          .from("products")
-          .select("*")
-          .eq("vendor_id", vendorData.id)
-          .eq("status", "published")
-          .order("created_at", { ascending: false });
-
-        if (!pErr && prodsData) {
-          setProducts(prodsData as Product[]);
+        const data = await res.json();
+        if (!data.vendor) {
+          setNotFound(true);
+          return;
         }
+        setVendor(data.vendor);
+        setProducts(data.products || []);
       } catch (err) {
         console.error("Failed to load seller profile:", err);
         setNotFound(true);
@@ -70,11 +65,12 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-6xl px-6 py-16 animate-pulse">
-        <div className="aspect-[4/1] w-full rounded-3xl bg-zinc-800/60 mb-8" />
-        <div className="h-8 w-64 bg-zinc-800 rounded mb-4" />
-        <div className="h-4 w-96 bg-zinc-800/60 rounded mb-8" />
-        <div className="grid gap-6 sm:grid-cols-3">
+      <div className="mx-auto max-w-6xl px-6 py-10 animate-pulse">
+        <div className="h-4 w-32 bg-zinc-800 rounded mb-6" />
+        <div className="aspect-[5/1] w-full rounded-3xl bg-zinc-800/60 mb-16" />
+        <div className="h-8 w-64 bg-zinc-800 rounded mb-3" />
+        <div className="h-4 w-96 bg-zinc-800/60 rounded mb-10" />
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3].map((n) => (
             <div key={n} className="h-72 rounded-2xl bg-zinc-800/40" />
           ))}
@@ -103,6 +99,8 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
     );
   }
 
+  const initials = vendor.store_name.charAt(0).toUpperCase();
+
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
       {/* Back button */}
@@ -114,10 +112,10 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
         <span>Back to Software Catalog</span>
       </Link>
 
-      {/* Hero Banner / Cover */}
-      <div className="relative overflow-hidden rounded-3xl border border-zinc-800 bg-gradient-to-br from-zinc-900 via-zinc-950 to-black">
+      {/* Cover Banner */}
+      <div className="relative w-full overflow-hidden rounded-3xl border border-zinc-800">
         {vendor.cover_url ? (
-          <div className="aspect-[4/1] sm:aspect-[5/1] w-full overflow-hidden">
+          <div className="aspect-[5/1] w-full overflow-hidden">
             <img
               src={vendor.cover_url}
               alt={vendor.store_name}
@@ -125,52 +123,62 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
             />
           </div>
         ) : (
-          <div className="aspect-[4/1] sm:aspect-[6/1] w-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-amber-500/10 via-zinc-900/40 to-transparent" />
+          <div className="aspect-[5/1] sm:aspect-[6/1] w-full bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-amber-500/15 via-zinc-900/60 to-zinc-950" />
         )}
 
-        {/* Profile Info Overlay */}
-        <div className="p-6 sm:p-8 flex flex-col sm:flex-row sm:items-end justify-between gap-6 border-t border-zinc-800/80 bg-zinc-950/80 backdrop-blur-sm">
-          <div className="flex items-start gap-4">
-            <div className="flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 text-2xl font-black text-zinc-950 shadow-xl shadow-amber-500/20 shrink-0">
-              {vendor.store_name.charAt(0).toUpperCase()}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-white">{vendor.store_name}</h1>
-                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400 uppercase">
-                  Verified Seller
-                </span>
+        {/* Circular avatar overlapping cover bottom-left */}
+        <div className="absolute bottom-0 left-6 sm:left-8 translate-y-1/2">
+          <div className="relative h-24 w-24 sm:h-28 sm:w-28 rounded-full border-4 border-zinc-950 bg-zinc-800 overflow-hidden shadow-2xl shadow-black/40">
+            {vendor.avatar_url ? (
+              <img src={vendor.avatar_url} alt={vendor.store_name} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-400 to-amber-600 text-3xl font-black text-zinc-950">
+                {initials}
               </div>
-              <p className="font-mono text-xs text-amber-400/90 mt-0.5">@{vendor.slug}</p>
-              {vendor.bio && <p className="mt-2 text-xs text-zinc-300 max-w-2xl leading-relaxed">{vendor.bio}</p>}
-              <div className="flex items-center gap-4 text-[11px] text-zinc-500 mt-3">
-                <span className="flex items-center gap-1">
-                  <Calendar className="h-3 w-3" />
-                  <span>Member since {new Date(vendor.created_at).toLocaleDateString()}</span>
-                </span>
-                <span>&bull;</span>
-                <span className="flex items-center gap-1 text-zinc-400 font-semibold">
-                  <Package className="h-3 w-3 text-amber-400" />
-                  <span>{products.length} Published Products</span>
-                </span>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Published Products Section */}
-      <section className="mt-12">
-        <div className="border-b border-zinc-800/80 pb-4 mb-8">
+      {/* Identity Row */}
+      <div className="mt-16 sm:mt-18 flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 border-b border-zinc-800/80">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white">{vendor.store_name}</h1>
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-400 uppercase tracking-wide">
+              Verified Seller
+            </span>
+          </div>
+          <p className="font-mono text-xs text-amber-400/90 mt-0.5">@{vendor.slug}</p>
+          {vendor.bio && (
+            <p className="mt-2 text-sm text-zinc-300 max-w-2xl leading-relaxed">{vendor.bio}</p>
+          )}
+          <div className="flex items-center gap-4 text-[11px] text-zinc-500 mt-3 flex-wrap">
+            <span className="flex items-center gap-1">
+              <Calendar className="h-3 w-3" />
+              <span>Member since {new Date(vendor.created_at).toLocaleDateString()}</span>
+            </span>
+            <span>&bull;</span>
+            <span className="flex items-center gap-1 text-zinc-400 font-semibold">
+              <Package className="h-3 w-3 text-amber-400" />
+              <span>{products.length} Published {products.length === 1 ? "Product" : "Products"}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Products Grid */}
+      <section className="mt-10">
+        <div className="mb-6">
           <span className="text-xs font-bold uppercase tracking-wider text-amber-400">Software Releases</span>
-          <h2 className="mt-1 text-2xl font-bold tracking-tight text-white">
+          <h2 className="mt-1 text-xl font-bold tracking-tight text-white">
             Products by {vendor.store_name}
           </h2>
         </div>
 
         {products.length === 0 ? (
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-12 text-center">
-            <Package className="h-12 w-12 text-zinc-600 mx-auto mb-3" />
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-14 text-center">
+            <PackageCheck className="h-12 w-12 text-zinc-600 mx-auto mb-3" />
             <h3 className="text-base font-bold text-white">No products available yet</h3>
             <p className="mt-1 text-xs text-zinc-400">
               This seller has not published any software products to the marketplace yet.
@@ -180,11 +188,14 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {products.map((product) => {
               const isFree = product.product_type === "free";
-              const priceBDT = product.price_cents ? (product.price_cents / 100).toLocaleString("en-BD") : "0";
               const cleanWhatsApp = product.metadata?.whatsapp_number
                 ? String(product.metadata.whatsapp_number).replace(/[\s\+\-\(\)]/g, "").trim()
                 : null;
               const hasValidWhatsApp = Boolean(cleanWhatsApp && /^[0-9]{7,15}$/.test(cleanWhatsApp));
+              const priceLabel = formatPrice(product.price_cents, product.currency);
+              const whatsappMsg = encodeURIComponent(
+                `Hello, I want to purchase ${product.title} (Price: ${priceLabel}) on BEEEJOY.`
+              );
 
               return (
                 <div
@@ -237,7 +248,7 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
                           {isFree ? (
                             <span className="text-emerald-400">FREE</span>
                           ) : (
-                            <span className="text-amber-400">৳{priceBDT} <span className="text-[10px] text-zinc-400">BDT</span></span>
+                            <span className="text-amber-400">{priceLabel}</span>
                           )}
                         </span>
                       </div>
@@ -260,9 +271,7 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
                       </a>
                     ) : hasValidWhatsApp ? (
                       <a
-                        href={`https://wa.me/${cleanWhatsApp}?text=${encodeURIComponent(
-                          `Hello, I want to purchase ${product.title} (Price: ৳${priceBDT} BDT) on BEEEJOY.`
-                        )}`}
+                        href={`https://wa.me/${cleanWhatsApp}?text=${whatsappMsg}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="w-full rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-bold text-zinc-950 hover:bg-amber-400 shadow-md shadow-amber-500/20 transition-all flex items-center justify-center gap-1.5"

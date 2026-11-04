@@ -42,9 +42,11 @@ export async function POST(req: NextRequest) {
     const rawSlug = typeof body.slug === "string" ? body.slug.trim() : "";
     const description = typeof body.description === "string" ? body.description.trim() : "";
     const productType = body.productType === "premium" ? "premium" : "free";
-    const priceBdtStr = String(body.priceBdt || "0").trim();
+    const currency = body.currency === "USD" ? "USD" : "BDT";
+    const priceStr = String(body.price ?? body.priceBdt ?? "0").trim();
     const rawWhatsApp = typeof body.whatsappNumber === "string" ? body.whatsappNumber.trim() : "";
     const youtubeUrl = typeof body.youtubeUrl === "string" ? body.youtubeUrl.trim() : "";
+    const pendingVideoPath = typeof body.pendingVideoPath === "string" ? body.pendingVideoPath.trim() : null;
     const thumbnailUrl = typeof body.thumbnailUrl === "string" ? body.thumbnailUrl.trim() : null;
     const zipStoragePath = typeof body.zipStoragePath === "string" ? body.zipStoragePath.trim() : null;
     const zipSize = typeof body.zipSize === "number" ? body.zipSize : null;
@@ -82,8 +84,8 @@ export async function POST(req: NextRequest) {
     let priceCents = 0;
 
     if (productType === "premium") {
-      const parsedPrice = parseFloat(priceBdtStr);
-      if (!priceBdtStr || isNaN(parsedPrice) || parsedPrice <= 0) {
+      const parsedPrice = parseFloat(priceStr);
+      if (!priceStr || isNaN(parsedPrice) || parsedPrice <= 0) {
         return NextResponse.json(
           { error: "Please enter a valid price (greater than 0) for Premium software." },
           { status: 400 }
@@ -108,10 +110,23 @@ export async function POST(req: NextRequest) {
     const metadataPayload: Record<string, any> = {};
     if (youtubeUrl) metadataPayload.youtube_url = youtubeUrl;
     if (cleanWhatsApp) metadataPayload.whatsapp_number = cleanWhatsApp;
+    if (pendingVideoPath) {
+      // Security: ensure the pending video is stored within this seller's vendor folder
+      if (!pendingVideoPath.startsWith(`pending-videos/${auth.vendor.id}/`)) {
+        return NextResponse.json({ error: "Invalid video storage path." }, { status: 403 });
+      }
+      if (!/\.(mp4|webm|mov)$/i.test(pendingVideoPath)) {
+        return NextResponse.json(
+          { error: "Invalid video format. Only MP4, WebM, and MOV are allowed." },
+          { status: 400 }
+        );
+      }
+      metadataPayload.pending_video_path = pendingVideoPath;
+    }
 
     // Strict Security:
     // 1. Force vendor_id to authenticated seller's vendor.id
-    // 2. Force status to 'pending_review' (seller CANNOT publish)
+    // 2. Force status to 'pending_review' (seller CANNOT publish directly)
     const { data: newProduct, error: prodErr } = await auth.adminDb.database
       .from("products")
       .insert([
@@ -122,7 +137,7 @@ export async function POST(req: NextRequest) {
           description: description || null,
           product_type: productType,
           price_cents: priceCents,
-          currency: "BDT",
+          currency: currency,
           status: "pending_review",
           thumbnail_url: thumbnailUrl,
           metadata: metadataPayload,
@@ -203,9 +218,12 @@ export async function PUT(req: NextRequest) {
     const rawSlug = typeof body.slug === "string" ? body.slug.trim() : existingProd.slug;
     const description = typeof body.description === "string" ? body.description.trim() : (existingProd.description || "");
     const productType = body.productType === "premium" ? "premium" : "free";
-    const priceBdtStr = String(body.priceBdt ?? (existingProd.price_cents / 100)).trim();
+    const currency = body.currency === "USD" ? "USD" : (body.currency === "BDT" ? "BDT" : (existingProd.currency || "BDT"));
+    const priceStr = String(body.price ?? body.priceBdt ?? (existingProd.price_cents / 100)).trim();
     const rawWhatsApp = typeof body.whatsappNumber === "string" ? body.whatsappNumber.trim() : (existingProd.metadata?.whatsapp_number || "");
-    const youtubeUrl = typeof body.youtubeUrl === "string" ? body.youtubeUrl.trim() : (existingProd.metadata?.youtube_url || "");
+    const youtubeUrl = typeof body.youtubeUrl === "string" ? body.youtubeUrl.trim() : "";
+    const pendingVideoPath = typeof body.pendingVideoPath === "string" ? body.pendingVideoPath.trim() : null;
+    const removeVideo = Boolean(body.removeVideo);
     const thumbnailUrl = typeof body.thumbnailUrl === "string" ? body.thumbnailUrl.trim() : existingProd.thumbnail_url;
     const zipStoragePath = typeof body.zipStoragePath === "string" ? body.zipStoragePath.trim() : null;
     const zipSize = typeof body.zipSize === "number" ? body.zipSize : null;
@@ -237,8 +255,8 @@ export async function PUT(req: NextRequest) {
     let priceCents = 0;
 
     if (productType === "premium") {
-      const parsedPrice = parseFloat(priceBdtStr);
-      if (!priceBdtStr || isNaN(parsedPrice) || parsedPrice <= 0) {
+      const parsedPrice = parseFloat(priceStr);
+      if (!priceStr || isNaN(parsedPrice) || parsedPrice <= 0) {
         return NextResponse.json(
           { error: "Please enter a valid price (greater than 0) for Premium software." },
           { status: 400 }
@@ -263,8 +281,35 @@ export async function PUT(req: NextRequest) {
     const metadataPayload: Record<string, any> = {
       ...(existingProd.metadata || {}),
     };
-    if (youtubeUrl) metadataPayload.youtube_url = youtubeUrl;
-    else delete metadataPayload.youtube_url;
+
+    if (youtubeUrl) {
+      metadataPayload.youtube_url = youtubeUrl;
+      // If switching to YouTube, remove any pending video
+      delete metadataPayload.pending_video_path;
+    } else if (body.youtubeUrl !== undefined) {
+      delete metadataPayload.youtube_url;
+    }
+
+    if (pendingVideoPath) {
+      if (!pendingVideoPath.startsWith(`pending-videos/${auth.vendor.id}/`)) {
+        return NextResponse.json({ error: "Invalid video storage path." }, { status: 403 });
+      }
+      if (!/\.(mp4|webm|mov)$/i.test(pendingVideoPath)) {
+        return NextResponse.json(
+          { error: "Invalid video format. Only MP4, WebM, and MOV are allowed." },
+          { status: 400 }
+        );
+      }
+      metadataPayload.pending_video_path = pendingVideoPath;
+      // Video upload chosen -> clear youtube_url
+      delete metadataPayload.youtube_url;
+    }
+
+    if (removeVideo) {
+      delete metadataPayload.pending_video_path;
+      delete metadataPayload.demo_video_path;
+      delete metadataPayload.youtube_url;
+    }
 
     if (cleanWhatsApp) metadataPayload.whatsapp_number = cleanWhatsApp;
     else delete metadataPayload.whatsapp_number;
@@ -279,6 +324,7 @@ export async function PUT(req: NextRequest) {
         description: description || null,
         product_type: productType,
         price_cents: priceCents,
+        currency: currency,
         status: "pending_review",
         thumbnail_url: thumbnailUrl,
         metadata: metadataPayload,

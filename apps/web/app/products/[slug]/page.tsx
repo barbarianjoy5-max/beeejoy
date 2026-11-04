@@ -17,7 +17,7 @@ import {
   Store,
 } from "lucide-react";
 import { insforge } from "../../../lib/insforge";
-import { Product, PublicVendor } from "../../../lib/types";
+import { Product, PublicVendor, formatPrice, formatOrderMessage } from "../../../lib/types";
 import { getYouTubeEmbedUrl } from "../../../lib/youtube";
 
 interface PageProps {
@@ -103,8 +103,10 @@ export default function ProductDetailPage({ params }: PageProps) {
   }
 
   const isFree = product.product_type === "free";
-  const priceBDT = product.price_cents ? (product.price_cents / 100).toLocaleString("en-BD") : "0";
+  const priceFormatted = formatPrice(product.price_cents || 0, product.currency || "BDT");
+  const currencyLabel = product.currency || "BDT";
   const youtubeUrl = product.metadata?.youtube_url;
+  const demoVideoPath = product.metadata?.demo_video_path;
   const embedUrl = getYouTubeEmbedUrl(youtubeUrl);
 
   // Extract and validate product-specific WhatsApp number
@@ -114,7 +116,7 @@ export default function ProductDetailPage({ params }: PageProps) {
 
   // Construct message
   const whatsappMessage = encodeURIComponent(
-    `Hello, I would like to order "${product.title}" (Price: ৳${priceBDT} BDT) from BEEEJOY.`
+    formatOrderMessage(product.title, product.price_cents || 0, product.currency || "BDT")
   );
 
   return (
@@ -179,12 +181,25 @@ export default function ProductDetailPage({ params }: PageProps) {
             </div>
           )}
 
-          {/* Optional YouTube Video Embed (ONLY rendered if valid YouTube URL is present) */}
-          {embedUrl && (
+          {/* Optional Video Demo — uploaded video takes priority over YouTube link */}
+          {demoVideoPath ? (
             <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 sm:p-8">
               <div className="flex items-center gap-2 text-white font-bold text-lg mb-4">
                 <Video className="h-5 w-5 text-red-500" />
-                <span>Product Video Preview & Walkthrough</span>
+                <span>Demo Video</span>
+              </div>
+              <div className="rounded-xl overflow-hidden border border-zinc-800 bg-black">
+                <video controls className="w-full max-h-[460px]" preload="metadata">
+                  <source src={demoVideoPath} />
+                  Your browser does not support the video tag.
+                </video>
+              </div>
+            </div>
+          ) : embedUrl ? (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 sm:p-8">
+              <div className="flex items-center gap-2 text-white font-bold text-lg mb-4">
+                <Video className="h-5 w-5 text-red-500" />
+                <span>Product Video Preview &amp; Walkthrough</span>
               </div>
               <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-black border border-zinc-800 shadow-xl">
                 <iframe
@@ -196,7 +211,7 @@ export default function ProductDetailPage({ params }: PageProps) {
                 />
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Product Overview / Description */}
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-6 sm:p-8">
@@ -243,8 +258,8 @@ export default function ProductDetailPage({ params }: PageProps) {
                   <span className="text-4xl font-black text-emerald-400">Free</span>
                 ) : (
                   <>
-                    <span className="text-4xl font-black text-amber-400">৳ {priceBDT}</span>
-                    <span className="text-xs text-zinc-500">BDT</span>
+                    <span className="text-4xl font-black text-amber-400">{priceFormatted}</span>
+                    <span className="text-xs text-zinc-500">{currencyLabel}</span>
                   </>
                 )}
               </div>
@@ -317,7 +332,7 @@ export default function ProductDetailPage({ params }: PageProps) {
                 </div>
                 <p className="text-zinc-400 leading-relaxed">
                   To complete your order, send{" "}
-                  <strong className="text-white">৳ {priceBDT} BDT</strong> via{" "}
+                  <strong className="text-white">{priceFormatted} {currencyLabel}</strong> via{" "}
                   <strong className="text-pink-400">bKash</strong> or{" "}
                   <strong className="text-orange-400">Nagad</strong> to the contact number provided on WhatsApp:
                 </p>
