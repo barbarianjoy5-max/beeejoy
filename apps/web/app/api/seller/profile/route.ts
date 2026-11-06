@@ -1,5 +1,66 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminClient, getAuthenticatedUser } from "@/lib/insforge-server";
+import { getAdminClient, getAuthenticatedAdmin, getAuthenticatedUser, getUserClient } from "@/lib/insforge-server";
+
+/**
+ * Avatar-only save for the single admin account.
+ *
+ * The admin owns no vendors row, so the vendor-scoped checks in PUT can never
+ * pass for it, yet its picture still lives on profiles.avatar_url (the same
+ * column the seller flow writes). Returns null when the caller is not the
+ * verified admin so the route falls through to its original seller error.
+ * The write target is the subject of the admin check itself - never a value
+ * from the request body - and only avatar_url is touched.
+ *
+ * avatar_url is the one column this may overwrite, so the accepted input is
+ * restricted to string | null. Anything else is rejected with 400 BEFORE any
+ * write: coercing a malformed value to null would silently delete the picture
+ * the admin already has.
+ */
+async function saveAdminAvatarOnly(req: NextRequest): Promise<NextResponse | null> {
+  const admin = await getAuthenticatedAdmin(req);
+  if (!admin) return null;
+
+  const body = await req.json().catch(() => null);
+  if (!body || body.avatarUrl === undefined) {
+    return NextResponse.json(
+      { error: "Admin accounts have no store profile to edit; only the profile picture can be saved." },
+      { status: 400 }
+    );
+  }
+
+  // Only a URL string or an explicit null may reach the write.
+  if (typeof body.avatarUrl !== "string" && body.avatarUrl !== null) {
+    return NextResponse.json(
+      { error: "Invalid profile picture: avatarUrl must be a URL string or null." },
+      { status: 400 }
+    );
+  }
+
+  // Empty or whitespace-only string means "no picture", same as null.
+  const avatarUrl =
+    typeof body.avatarUrl === "string" ? body.avatarUrl.trim() || null : null;
+
+  const { error } = await admin.adminDb.database
+    .from("profiles")
+    .update({
+      avatar_url: avatarUrl,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", admin.user.id);
+
+  if (error) {
+    return NextResponse.json(
+      { error: error.message || "Failed to update profile picture" },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({
+    success: true,
+    message: "Profile picture updated successfully",
+    avatar_url: avatarUrl,
+  });
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -53,12 +114,17 @@ export async function PUT(req: NextRequest) {
       .eq("user_id", auth.user.id)
       .maybeSingle();
 
+    // A missing vendor record is expected for the admin, which has no store.
     if (findErr || !existingVendor) {
+      const adminOnly = await saveAdminAvatarOnly(req);
+      if (adminOnly) return adminOnly;
       return NextResponse.json({ error: "Seller profile not found" }, { status: 404 });
     }
 
     // Only active vendors or admin can update profile details
     if (existingVendor.status !== "active") {
+      const adminOnly = await saveAdminAvatarOnly(req);
+      if (adminOnly) return adminOnly;
       return NextResponse.json(
         { error: "Only approved, active sellers can edit their profile" },
         { status: 403 }
@@ -127,15 +193,36 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    // 4. Update avatar_url in profiles if provided
+    // 4. Update avatar_url in profiles if provided.
+    // The write runs on the caller's own JWT client rather than the privileged
+    // key: profiles RLS decides on auth.uid() = id, and a key that carries no
+    // user identity matches zero rows while still answering without an error -
+    // which previously reported a save the database never applied. Asserting on
+    // the returned row turns that silent no-op into an explicit failure.
     if (avatarUrl !== undefined) {
-      await adminDb.database
+      const { error: avatarErr, data: avatarRows } = await getUserClient(auth.token)
+        .database
         .from("profiles")
         .update({
           avatar_url: avatarUrl,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", auth.user.id);
+        .eq("id", auth.user.id)
+        .select("id");
+
+      if (avatarErr) {
+        return NextResponse.json(
+          { error: avatarErr.message || "Failed to update profile picture" },
+          { status: 500 }
+        );
+      }
+
+      if (!avatarRows || avatarRows.length === 0) {
+        return NextResponse.json(
+          { error: "Profile picture was not saved: no profile row matched the signed-in user." },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({

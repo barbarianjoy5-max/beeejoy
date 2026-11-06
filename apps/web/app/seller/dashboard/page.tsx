@@ -29,7 +29,7 @@ import {
 import Link from "next/link";
 
 export default function SellerDashboardPage() {
-  const { user, profile, vendor, isSeller, isLoading: authLoading, openAuthModal, refreshProfile } = useAuth();
+  const { user, profile, vendor, isSeller, isAdmin, isLoading: authLoading, openAuthModal, refreshProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<"overview" | "products" | "upload" | "profile">("overview");
 
   // Seller products state
@@ -112,8 +112,13 @@ export default function SellerDashboardPage() {
       setProfileAvatarUrl((profile?.avatar_url || vendor.avatar_url) || "");
       setRemoveAvatar(false);
       setRemoveCover(false);
+    } else if (isAdmin) {
+      // The admin owns no vendor record, so its picture comes straight from
+      // profiles.avatar_url. The store fields stay vendor-only.
+      setProfileAvatarUrl(profile?.avatar_url || "");
+      setRemoveAvatar(false);
     }
-  }, [vendor, profile]);
+  }, [vendor, profile, isAdmin]);
 
   useEffect(() => {
     if (isSeller) {
@@ -1401,7 +1406,7 @@ export default function SellerDashboardPage() {
                 </label>
                 <input
                   type="text"
-                  required
+                  required={Boolean(vendor)}
                   value={profileStoreName}
                   onChange={(e) => setProfileStoreName(e.target.value)}
                   className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-2.5 text-sm text-white focus:border-amber-500 focus:outline-none"
@@ -1415,7 +1420,7 @@ export default function SellerDashboardPage() {
                   <span className="select-none text-zinc-500">/seller/</span>
                   <input
                     type="text"
-                    required
+                    required={Boolean(vendor)}
                     value={profileSlug}
                     onChange={(e) => setProfileSlug(e.target.value)}
                     className="w-full bg-transparent text-white font-mono focus:outline-none ml-1"
