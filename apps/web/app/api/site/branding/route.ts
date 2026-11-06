@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { getAdminClient } from "@/lib/insforge-server";
-import { SITE_BRANDING_KEY, toDisplayBranding } from "@/lib/branding";
+import {
+  DEFAULT_BRANDING_SIZES,
+  SITE_BRANDING_KEY,
+  normalizeBrandingSizes,
+  toDisplayBranding,
+} from "@/lib/branding";
 import { SiteBrandingConfig } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +23,7 @@ export async function GET() {
       return NextResponse.json({
         icon_url: null,
         wordmark_url: null,
+        ...DEFAULT_BRANDING_SIZES,
       });
     }
 
@@ -27,12 +33,16 @@ export async function GET() {
     return NextResponse.json({
       icon_url: config?.icon_url || null,
       wordmark_url: config?.wordmark_url || null,
+      // Read-only display sizes so the public header and seller profiles render
+      // exactly what the admin saved. Writing them stays admin-only.
+      ...normalizeBrandingSizes(stored),
     });
   } catch (err: any) {
     console.warn("Site branding query warning:", err);
     return NextResponse.json({
       icon_url: null,
       wordmark_url: null,
+      ...DEFAULT_BRANDING_SIZES,
     });
   }
 }

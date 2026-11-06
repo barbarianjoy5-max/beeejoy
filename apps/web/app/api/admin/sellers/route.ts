@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     // Load associated profiles and products count
     const { data: profiles } = await admin.adminDb.database
       .from("profiles")
-      .select("id, email, full_name, role");
+      .select("id, email, full_name, role, avatar_url");
 
     const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
 

@@ -5,6 +5,18 @@ import { useAuth, getClientAccessToken } from "../../lib/auth-context";
 import { insforge } from "../../lib/insforge";
 import { Product, formatPrice, HomepageAnimationConfig, SiteBrandingConfig, HeroContentConfig } from "../../lib/types";
 import { DEFAULT_HERO_CONTENT, HERO_LIMITS, normalizeHeroContent } from "../../lib/hero-content";
+import {
+  BRANDING_SIZE_LIMITS,
+  DEFAULT_BRANDING_SIZES,
+  avatarSizeCss,
+  iconSizeCss,
+  normalizeBrandingSizes,
+  wordmarkMaxWidthCss,
+  wordmarkSizeCss,
+  wordmarkTextSizeCss,
+  type BrandingSizeKey,
+  type BrandingSizes,
+} from "../../lib/branding";
 import { getYouTubeVideoId, getYouTubeEmbedUrl } from "../../lib/youtube";
 import TypewriterText from "../../components/TypewriterText";
 import WebsiteAnalyticsPanel from "../../components/WebsiteAnalyticsPanel";
@@ -39,8 +51,76 @@ import {
   ArrowUp,
   ArrowDown,
   BarChart3,
+  RotateCcw,
+  UserCircle2,
 } from "lucide-react";
 import Link from "next/link";
+
+/**
+ * One smooth range control for a branding display size.
+ *
+ * Shared by the square icon, the wordmark and the global seller picture
+ * sliders so all three behave identically: whole-pixel steps, the live value
+ * beside the label, a filled track that follows the thumb, and the accepted
+ * min/max printed underneath.
+ */
+function BrandingSizeSlider({
+  label,
+  sizeKey,
+  value,
+  onChange,
+  hint,
+  disabled,
+}: {
+  label: string;
+  sizeKey: BrandingSizeKey;
+  value: number;
+  onChange: (value: number) => void;
+  hint: string;
+  disabled?: boolean;
+}) {
+  const { min, max } = BRANDING_SIZE_LIMITS[sizeKey];
+  const safeValue = Math.min(max, Math.max(min, Math.round(value)));
+  const fillPercent = ((safeValue - min) / (max - min)) * 100;
+  const defaultPx = DEFAULT_BRANDING_SIZES[sizeKey];
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <label className="text-xs font-bold text-zinc-200">{label}</label>
+        <span className="rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-0.5 text-[11px] font-mono font-semibold text-amber-400 tabular-nums">
+          {safeValue} px
+        </span>
+      </div>
+
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={1}
+        value={safeValue}
+        disabled={disabled}
+        aria-label={label}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="beejoy-range mt-3 w-full"
+        style={{ ["--range-fill" as string]: `${fillPercent}%` } as React.CSSProperties}
+      />
+
+      <div className="mt-1.5 flex items-center justify-between text-[10px] font-mono text-zinc-600">
+        <span>{min} px</span>
+        <span>
+          Default {defaultPx} px
+          {safeValue !== defaultPx && (
+            <span className="ml-1 text-amber-400/80">&bull; adjusted</span>
+          )}
+        </span>
+        <span>{max} px</span>
+      </div>
+
+      <p className="mt-1.5 text-[11px] leading-5 text-zinc-500">{hint}</p>
+    </div>
+  );
+}
 
 export default function AdminDashboardPage() {
   const { user, profile, isAdmin, isLoading: authLoading } = useAuth();
@@ -64,6 +144,8 @@ export default function AdminDashboardPage() {
   const [iconPreview, setIconPreview] = useState<string | null>(null);
   const [wordmarkFile, setWordmarkFile] = useState<File | null>(null);
   const [wordmarkPreview, setWordmarkPreview] = useState<string | null>(null);
+  // Unsaved slider values. Saved values live inside brandingConfig.
+  const [brandingSizeDraft, setBrandingSizeDraft] = useState<BrandingSizes>(DEFAULT_BRANDING_SIZES);
 
   // Hero Content state (heroConfig = saved, heroDraft = editor)
   const [heroConfig, setHeroConfig] = useState<HeroContentConfig | null>(null);
@@ -300,6 +382,7 @@ export default function AdminDashboardPage() {
       const data = await res.json();
       if (res.ok && data.branding) {
         setBrandingConfig(data.branding);
+        setBrandingSizeDraft(normalizeBrandingSizes(data.branding));
       }
     } catch (err) {
       console.warn("Failed to load branding settings:", err);
@@ -423,6 +506,76 @@ export default function AdminDashboardPage() {
       setFeedback({ type: "success", message: data.message || "Site wordmark removed." });
     } catch (err: any) {
       setFeedback({ type: "error", message: err?.message || "Failed to remove wordmark" });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // Branding display sizes
+  //
+  // The sliders only edit a local draft, so the live preview reacts while
+  // dragging and nothing is written until Save Changes. Every value is clamped
+  // here for the UI and re-validated server-side in /api/admin/branding.
+  // ----------------------------------------------------------------------------
+
+  const updateBrandingSize = (key: BrandingSizeKey, value: number) => {
+    setBrandingSizeDraft((prev) => ({
+      ...prev,
+      [key]: normalizeBrandingSizes({ ...prev, [key]: value })[key],
+    }));
+  };
+
+  const resetHeaderSizes = () => {
+    setBrandingSizeDraft((prev) => ({
+      ...prev,
+      icon_size_px: DEFAULT_BRANDING_SIZES.icon_size_px,
+      wordmark_size_px: DEFAULT_BRANDING_SIZES.wordmark_size_px,
+    }));
+  };
+
+  const resetAvatarSize = () => {
+    setBrandingSizeDraft((prev) => ({
+      ...prev,
+      seller_avatar_size_px: DEFAULT_BRANDING_SIZES.seller_avatar_size_px,
+    }));
+  };
+
+  const saveBrandingSizes = async (keys: BrandingSizeKey[]) => {
+    setActionLoading("save_branding_sizes");
+    setFeedback(null);
+    try {
+      const token = await getClientAccessToken();
+      const sizes = keys.reduce(
+        (acc, key) => ({ ...acc, [key]: brandingSizeDraft[key] }),
+        {} as Partial<BrandingSizes>
+      );
+
+      const res = await fetch("/api/admin/branding", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action: "save_sizes", sizes }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save display sizes");
+
+      const saved = normalizeBrandingSizes(data.branding);
+      setBrandingConfig(data.branding);
+      // Only the keys just saved settle back to the server value; a draft still
+      // being dragged in the other group stays untouched.
+      setBrandingSizeDraft((prev) => {
+        const next = { ...prev };
+        keys.forEach((key) => {
+          next[key] = saved[key];
+        });
+        return next;
+      });
+      setFeedback({ type: "success", message: data.message || "Display sizes saved successfully." });
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err?.message || "Failed to save display sizes" });
     } finally {
       setActionLoading(null);
     }
@@ -924,6 +1077,21 @@ export default function AdminDashboardPage() {
     const list = heroDraft.phrases.map((phrase) => phrase.trim()).filter(Boolean);
     return list.length ? list : DEFAULT_HERO_CONTENT.phrases;
   })();
+
+  // Branding size editor derivations
+  const savedBrandingSizes = normalizeBrandingSizes(brandingConfig ?? {});
+  const headerSizesDirty =
+    brandingSizeDraft.icon_size_px !== savedBrandingSizes.icon_size_px ||
+    brandingSizeDraft.wordmark_size_px !== savedBrandingSizes.wordmark_size_px;
+  const avatarSizeDirty =
+    brandingSizeDraft.seller_avatar_size_px !== savedBrandingSizes.seller_avatar_size_px;
+  // Representative seller picture for the avatar preview: the first active
+  // store that actually has a profile picture, otherwise any store with one.
+  const previewSeller =
+    sellers.find((s) => s.status === "active" && s.user?.avatar_url) ||
+    sellers.find((s) => s.user?.avatar_url) ||
+    null;
+  const previewSellerAvatarUrl: string | null = previewSeller?.user?.avatar_url || null;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
@@ -2041,7 +2209,7 @@ export default function AdminDashboardPage() {
                   <span>Live Header Preview</span>
                 </h3>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  How BEEEJOY&apos;s brand header appears to site visitors right now
+                  How BEEEJOY&apos;s brand header appears to site visitors right now (unsaved slider values included)
                 </p>
               </div>
               <span className="text-[11px] font-mono text-zinc-500">
@@ -2051,10 +2219,16 @@ export default function AdminDashboardPage() {
               </span>
             </div>
 
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 flex items-center gap-3">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 flex items-center gap-3 overflow-hidden">
               {/* Square Icon preview */}
               {brandingConfig?.icon_url ? (
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-900 border border-zinc-800 p-1.5 shadow-lg shadow-black/40">
+                <span
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 border border-zinc-800 p-1.5 shadow-lg shadow-black/40 transition-all overflow-hidden"
+                  style={{
+                    width: iconSizeCss(brandingSizeDraft.icon_size_px),
+                    height: iconSizeCss(brandingSizeDraft.icon_size_px),
+                  }}
+                >
                   <img
                     src={brandingConfig.icon_url}
                     alt="Square Icon"
@@ -2062,20 +2236,34 @@ export default function AdminDashboardPage() {
                   />
                 </span>
               ) : (
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-lg font-black text-zinc-950 shadow-lg shadow-amber-500/20">
+                <span
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 font-black text-zinc-950 shadow-lg shadow-amber-500/20 transition-all"
+                  style={{
+                    width: iconSizeCss(brandingSizeDraft.icon_size_px),
+                    height: iconSizeCss(brandingSizeDraft.icon_size_px),
+                    fontSize: `calc(${iconSizeCss(brandingSizeDraft.icon_size_px)} * 0.45)`,
+                  }}
+                >
                   B
                 </span>
               )}
               {/* Wordmark preview */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 {brandingConfig?.wordmark_url ? (
                   <img
                     src={brandingConfig.wordmark_url}
                     alt="BEEEJOY"
-                    className="h-6 w-auto max-w-[160px] object-contain"
+                    className="h-6 w-auto max-w-[160px] shrink-0 object-contain"
+                    style={{
+                      height: wordmarkSizeCss(brandingSizeDraft.wordmark_size_px),
+                      maxWidth: wordmarkMaxWidthCss(brandingSizeDraft.wordmark_size_px),
+                    }}
                   />
                 ) : (
-                  <span className="text-xl font-bold tracking-tight text-white">
+                  <span
+                    className="text-xl font-bold tracking-tight text-white shrink-0"
+                    style={{ fontSize: wordmarkTextSizeCss(brandingSizeDraft.wordmark_size_px) }}
+                  >
                     BEEEJOY
                   </span>
                 )}
@@ -2163,6 +2351,17 @@ export default function AdminDashboardPage() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Display Size Control */}
+              <div className="pt-5 border-t border-zinc-800/80">
+                <BrandingSizeSlider
+                  label="Square Icon Logo Size"
+                  sizeKey="icon_size_px"
+                  value={brandingSizeDraft.icon_size_px}
+                  onChange={(value) => updateBrandingSize("icon_size_px", value)}
+                  hint="Scales the icon badge in the live header on every page. Aspect ratio stays intact and the uploaded SVG file is never re-encoded."
+                />
               </div>
 
               {/* Upload Form */}
@@ -2310,6 +2509,17 @@ export default function AdminDashboardPage() {
                 )}
               </div>
 
+              {/* Display Size Control */}
+              <div className="pt-5 border-t border-zinc-800/80">
+                <BrandingSizeSlider
+                  label="Site Name / Wordmark Size"
+                  sizeKey="wordmark_size_px"
+                  value={brandingSizeDraft.wordmark_size_px}
+                  onChange={(value) => updateBrandingSize("wordmark_size_px", value)}
+                  hint="Sets the wordmark height. When no SVG is uploaded it also sets the size of the built-in site name text. Width follows the artwork, so nothing is stretched, and it stays aligned with the icon badge."
+                />
+              </div>
+
               {/* Upload Form */}
               <form onSubmit={handleUploadWordmark} className="space-y-4 pt-2 border-t border-zinc-800/80">
                 <label className="block text-xs font-bold text-zinc-200">
@@ -2376,6 +2586,162 @@ export default function AdminDashboardPage() {
                   )}
                 </button>
               </form>
+            </div>
+          </div>
+
+          {/* Display Size Actions (Square Icon + Wordmark) */}
+          <div className="flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-[11px] space-y-0.5">
+              {headerSizesDirty ? (
+                <span className="font-semibold text-amber-400">Unsaved header size changes</span>
+              ) : (
+                <span className="font-semibold text-emerald-400">All header size changes saved</span>
+              )}
+              <p className="text-zinc-500">
+                Saved sizes drive the real header on every public page and survive a refresh. Uploading or removing a logo never resets them.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={resetHeaderSizes}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-xs font-semibold text-zinc-300 hover:border-zinc-600 hover:text-white transition-all"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset to Default</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => saveBrandingSizes(["icon_size_px", "wordmark_size_px"])}
+                disabled={!headerSizesDirty || actionLoading === "save_branding_sizes"}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 px-5 py-2 text-xs font-bold text-zinc-950 shadow-md shadow-amber-500/20 hover:bg-amber-400 disabled:opacity-40 transition-all"
+              >
+                {actionLoading === "save_branding_sizes" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}
+                <span>Save Changes</span>
+              </button>
+            </div>
+          </div>
+
+          {/* SECTION: SELLER PROFILE PICTURE MANAGEMENT */}
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 space-y-6">
+            <div className="border-b border-zinc-800/80 pb-4 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400 text-xs font-bold border border-amber-500/20">
+                    C
+                  </span>
+                  <span>Seller Profile Picture Management</span>
+                </h3>
+                <p className="text-xs text-zinc-400 max-w-2xl">
+                  One global size control for the picture shown on every seller profile page. This only changes how the stored avatar is displayed: uploads, files and the circular crop stay exactly as they are.
+                </p>
+              </div>
+              <span className="shrink-0 inline-flex items-center gap-1.5 self-start rounded-full bg-zinc-800 border border-zinc-700/60 text-zinc-400 text-[10px] font-semibold px-2.5 py-1">
+                <Users className="h-3 w-3" />
+                <span>{sellers.length} {sellers.length === 1 ? "store" : "stores"} covered</span>
+              </span>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2 lg:items-center">
+              <BrandingSizeSlider
+                label="Seller Profile Picture Size"
+                sizeKey="seller_avatar_size_px"
+                value={brandingSizeDraft.seller_avatar_size_px}
+                onChange={(value) => updateBrandingSize("seller_avatar_size_px", value)}
+                hint="Applies to all sellers at once, on their public profile pages. The circle keeps its aspect ratio and the original upload is never resized or compressed."
+                disabled={loadingBranding}
+              />
+
+              {/* Preview on a representative seller profile */}
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+                <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Eye className="h-3.5 w-3.5 text-amber-400" />
+                  <span>Live Seller Preview</span>
+                </p>
+
+                <div className="mt-3 rounded-lg border border-zinc-800 bg-gradient-to-br from-amber-500/10 via-zinc-900/60 to-zinc-950 px-4 pt-6 pb-5 flex flex-col items-center gap-3 overflow-hidden">
+                  <div
+                    className="shrink-0 rounded-full border-4 border-zinc-950 bg-zinc-800 overflow-hidden shadow-2xl shadow-black/50"
+                    style={{
+                      width: avatarSizeCss(brandingSizeDraft.seller_avatar_size_px),
+                      height: avatarSizeCss(brandingSizeDraft.seller_avatar_size_px),
+                    }}
+                  >
+                    {previewSellerAvatarUrl ? (
+                      <img
+                        src={previewSellerAvatarUrl}
+                        alt={previewSeller?.store_name || "Seller"}
+                        className="h-full w-full object-cover object-center"
+                      />
+                    ) : (
+                      <div
+                        className="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-400 to-amber-600 font-black text-zinc-950"
+                        style={{ fontSize: `calc(${avatarSizeCss(brandingSizeDraft.seller_avatar_size_px)} * 0.27)` }}
+                      >
+                        {(previewSeller?.store_name || "B").charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-center min-w-0">
+                    <p className="text-xs font-bold text-white truncate flex items-center justify-center gap-1.5">
+                      <UserCircle2 className="h-3.5 w-3.5 text-zinc-500" />
+                      <span className="truncate">{previewSeller?.store_name || "No seller yet"}</span>
+                    </p>
+                    <p className="mt-0.5 text-[10px] font-mono text-zinc-500">
+                      {previewSeller ? `@${previewSeller.slug}` : "Add a seller to see a real picture"}
+                    </p>
+                  </div>
+                </div>
+
+                <p className="mt-2 text-[11px] text-zinc-500">
+                  {previewSellerAvatarUrl
+                    ? "Representative seller shown at the size every seller profile will use."
+                    : "No seller has uploaded a picture yet, so the initials placeholder is shown instead."}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 border-t border-zinc-800/80 pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-[11px] space-y-0.5">
+                {avatarSizeDirty ? (
+                  <span className="font-semibold text-amber-400">Unsaved seller picture size</span>
+                ) : (
+                  <span className="font-semibold text-emerald-400">Seller picture size is saved</span>
+                )}
+                <p className="text-zinc-500">
+                  Saved as part of the same site branding setting &mdash; no extra table, and no seller data is modified.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={resetAvatarSize}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-xs font-semibold text-zinc-300 hover:border-zinc-600 hover:text-white transition-all"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Reset to Default</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => saveBrandingSizes(["seller_avatar_size_px"])}
+                  disabled={!avatarSizeDirty || actionLoading === "save_branding_sizes"}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 px-5 py-2 text-xs font-bold text-zinc-950 shadow-md shadow-amber-500/20 hover:bg-amber-400 disabled:opacity-40 transition-all"
+                >
+                  {actionLoading === "save_branding_sizes" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Save className="h-3.5 w-3.5" />
+                  )}
+                  <span>Save Changes</span>
+                </button>
+              </div>
             </div>
           </div>
 

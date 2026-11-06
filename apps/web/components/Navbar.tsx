@@ -3,25 +3,36 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "../lib/auth-context";
+import {
+  DEFAULT_BRANDING_SIZES,
+  fetchPublicSiteBranding,
+  iconSizeCss,
+  wordmarkMaxWidthCss,
+  wordmarkSizeCss,
+  wordmarkTextSizeCss,
+  type PublicSiteBranding,
+} from "../lib/branding";
 import { User, LogOut, ShieldAlert, ChevronDown, PackageCheck, CreditCard, Store } from "lucide-react";
 
 export default function Navbar() {
   const { user, profile, isAdmin, isSeller, isLoading, signOut, openAuthModal } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [branding, setBranding] = useState<{ icon_url: string | null; wordmark_url: string | null } | null>(null);
+  const [branding, setBranding] = useState<PublicSiteBranding | null>(null);
   // If a custom asset fails to load, fall back to the default branding.
   const [failedAssets, setFailedAssets] = useState({ icon: false, wordmark: false });
 
+  // Admin-controlled display sizes. The Tailwind classes below still carry the
+  // shipped defaults, so the header renders correctly before this resolves.
+  const iconSizePx = branding?.icon_size_px ?? DEFAULT_BRANDING_SIZES.icon_size_px;
+  const wordmarkSizePx = branding?.wordmark_size_px ?? DEFAULT_BRANDING_SIZES.wordmark_size_px;
+
   useEffect(() => {
     let mounted = true;
-    fetch("/api/site/branding")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (mounted && data) {
-          setBranding(data);
-        }
-      })
-      .catch((err) => console.warn("Navbar branding fetch warning:", err));
+    fetchPublicSiteBranding().then((data) => {
+      if (mounted && data) {
+        setBranding(data);
+      }
+    });
     return () => {
       mounted = false;
     };
@@ -33,7 +44,10 @@ export default function Navbar() {
         {/* Brand */}
         <Link href="/" className="flex items-center gap-3 group">
           {branding?.icon_url && !failedAssets.icon ? (
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-900 border border-zinc-800 p-1.5 shadow-lg shadow-black/40 group-hover:border-amber-500/40 transition-all overflow-hidden">
+            <span
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 border border-zinc-800 p-1.5 shadow-lg shadow-black/40 group-hover:border-amber-500/40 transition-all overflow-hidden"
+              style={{ width: iconSizeCss(iconSizePx), height: iconSizeCss(iconSizePx) }}
+            >
               <img
                 src={branding.icon_url}
                 alt="Logo"
@@ -44,7 +58,14 @@ export default function Navbar() {
               />
             </span>
           ) : (
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-lg font-black text-zinc-950 shadow-lg shadow-amber-500/20 group-hover:shadow-amber-500/30 transition-all">
+            <span
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 font-black text-zinc-950 shadow-lg shadow-amber-500/20 group-hover:shadow-amber-500/30 transition-all"
+              style={{
+                width: iconSizeCss(iconSizePx),
+                height: iconSizeCss(iconSizePx),
+                fontSize: `calc(${iconSizeCss(iconSizePx)} * 0.45)`,
+              }}
+            >
               B
             </span>
           )}
@@ -53,13 +74,20 @@ export default function Navbar() {
               <img
                 src={branding.wordmark_url}
                 alt="BEEEJOY"
-                className="h-6 w-auto max-w-[160px] object-contain group-hover:opacity-90 transition-opacity"
+                className="h-6 w-auto max-w-[160px] shrink-0 object-contain group-hover:opacity-90 transition-opacity"
+                style={{
+                  height: wordmarkSizeCss(wordmarkSizePx),
+                  maxWidth: wordmarkMaxWidthCss(wordmarkSizePx),
+                }}
                 onError={() =>
                   setFailedAssets((prev) => ({ ...prev, wordmark: true }))
                 }
               />
             ) : (
-              <span className="text-xl font-bold tracking-tight text-white group-hover:text-amber-400 transition-colors">
+              <span
+                className="text-xl font-bold tracking-tight text-white group-hover:text-amber-400 transition-colors"
+                style={{ fontSize: wordmarkTextSizeCss(wordmarkSizePx) }}
+              >
                 BEEEJOY
               </span>
             )}

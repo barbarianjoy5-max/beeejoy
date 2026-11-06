@@ -14,6 +14,11 @@ import {
   User,
 } from "lucide-react";
 import { Product, formatPrice } from "../../../lib/types";
+import {
+  DEFAULT_BRANDING_SIZES,
+  avatarSizeCss,
+  fetchPublicSiteBranding,
+} from "../../../lib/branding";
 
 interface PublicVendorData {
   id: string;
@@ -35,6 +40,23 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  // Global seller picture size chosen by the admin in Site Branding Management.
+  // Only the rendered box changes: the stored avatar file is never resized.
+  const [avatarSizePx, setAvatarSizePx] = useState(
+    DEFAULT_BRANDING_SIZES.seller_avatar_size_px
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    fetchPublicSiteBranding().then((data) => {
+      if (mounted && data) {
+        setAvatarSizePx(data.seller_avatar_size_px);
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     async function loadSellerProfile() {
@@ -101,6 +123,10 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
 
   const initials = vendor.store_name.charAt(0).toUpperCase();
 
+  // One CSS length drives the circle, its overlap offset and the reserved gap,
+  // so the avatar always stays centered and the layout never shifts.
+  const avatarCss = avatarSizeCss(avatarSizePx);
+
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
       {/* Back button */}
@@ -113,7 +139,10 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
       </Link>
 
       {/* Cover Banner & Overlapping Avatar */}
-      <div className="relative w-full mb-16 sm:mb-20">
+      <div
+        className="relative w-full mb-16 sm:mb-20"
+        style={{ marginBottom: `calc(${avatarCss} * 0.5 + 24px)` }}
+      >
         <div className="relative w-full overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950">
           {vendor.cover_url ? (
             <div className="aspect-[5/1] w-full overflow-hidden">
@@ -129,12 +158,21 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
         </div>
 
         {/* Circular avatar overlapping cover centered */}
-        <div className="absolute -bottom-12 sm:-bottom-14 left-1/2 -translate-x-1/2 z-10">
-          <div className="h-24 w-24 sm:h-28 sm:w-28 rounded-full border-4 border-zinc-950 bg-zinc-800 overflow-hidden shadow-2xl shadow-black/50">
+        <div
+          className="absolute left-1/2 -translate-x-1/2 z-10"
+          style={{ bottom: `calc(${avatarCss} * -0.5)` }}
+        >
+          <div
+            className="h-24 w-24 sm:h-28 sm:w-28 rounded-full border-4 border-zinc-950 bg-zinc-800 overflow-hidden shadow-2xl shadow-black/50"
+            style={{ width: avatarCss, height: avatarCss }}
+          >
             {vendor.avatar_url ? (
               <img src={vendor.avatar_url} alt={vendor.store_name} className="h-full w-full object-cover object-center" />
             ) : (
-              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-400 to-amber-600 text-3xl font-black text-zinc-950">
+              <div
+                className="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-400 to-amber-600 font-black text-zinc-950"
+                style={{ fontSize: `calc(${avatarCss} * 0.27)` }}
+              >
                 {initials}
               </div>
             )}

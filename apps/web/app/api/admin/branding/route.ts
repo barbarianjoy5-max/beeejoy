@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedAdmin } from "@/lib/insforge-server";
 import { sanitizeSvg } from "@/lib/svg-sanitizer";
-import { SITE_BRANDING_KEY, toDisplayBranding } from "@/lib/branding";
+import {
+  BRANDING_SIZE_LIMITS,
+  SITE_BRANDING_KEY,
+  isBrandingSizeKey,
+  normalizeSiteBranding,
+  toDisplayBranding,
+  type BrandingSizes,
+} from "@/lib/branding";
 import { SiteBrandingConfig } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -29,13 +36,7 @@ export async function GET(req: NextRequest) {
       console.warn("Branding settings query error:", error);
     }
 
-    const config = (data?.value as SiteBrandingConfig) || {
-      icon_url: null,
-      icon_storage_path: null,
-      wordmark_url: null,
-      wordmark_storage_path: null,
-      updated_at: null,
-    };
+    const config = normalizeSiteBranding(data?.value);
 
     return NextResponse.json({
       branding: toDisplayBranding(config),
@@ -66,12 +67,7 @@ export async function POST(req: NextRequest) {
       .eq("key", SETTING_KEY)
       .maybeSingle();
 
-    const currentConfig: SiteBrandingConfig = (existingRow?.value as SiteBrandingConfig) || {
-      icon_url: null,
-      icon_storage_path: null,
-      wordmark_url: null,
-      wordmark_storage_path: null,
-    };
+    const currentConfig: SiteBrandingConfig = normalizeSiteBranding(existingRow?.value);
 
     const contentType = req.headers.get("content-type") || "";
 
@@ -241,6 +237,85 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         message: `${isIcon ? "Square icon" : "Site wordmark"} removed. Reverted to default.`,
+        branding: toDisplayBranding(updatedConfig),
+      });
+    }
+
+    // Case 3: Global display sizes (square icon, wordmark, seller avatars).
+    // Only the numeric size fields are merged in; asset URLs, storage paths and
+    // the uploaded files themselves are never touched, and this can only be
+    // reached by the verified single admin checked at the top of POST.
+    if (action === "save_sizes") {
+      const payload = body.sizes;
+
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        return NextResponse.json(
+          { error: "Invalid payload. Expected a 'sizes' object." },
+          { status: 400 }
+        );
+      }
+
+      const validatedSizes: Partial<BrandingSizes> = {};
+
+      for (const [key, raw] of Object.entries(payload)) {
+        if (!isBrandingSizeKey(key)) continue;
+
+        const { min, max, label } = BRANDING_SIZE_LIMITS[key];
+
+        if (typeof raw !== "number" || !Number.isInteger(raw)) {
+          return NextResponse.json(
+            { error: `${label} size must be a whole pixel number.` },
+            { status: 400 }
+          );
+        }
+
+        if (raw < min || raw > max) {
+          return NextResponse.json(
+            { error: `${label} size must be between ${min} and ${max} px.` },
+            { status: 400 }
+          );
+        }
+
+        validatedSizes[key] = raw;
+      }
+
+      if (Object.keys(validatedSizes).length === 0) {
+        return NextResponse.json(
+          { error: "No display size values provided to save." },
+          { status: 400 }
+        );
+      }
+
+      const updatedConfig: SiteBrandingConfig = {
+        ...currentConfig,
+        ...validatedSizes,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error: saveErr } = await admin.adminDb.database
+        .from("site_settings")
+        .upsert(
+          [
+            {
+              key: SETTING_KEY,
+              value: updatedConfig,
+              updated_at: new Date().toISOString(),
+            },
+          ],
+          { onConflict: "key" }
+        );
+
+      if (saveErr) {
+        console.error("Branding size save error:", saveErr);
+        return NextResponse.json(
+          { error: `Failed to save branding sizes: ${saveErr.message}` },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Display sizes saved successfully.",
         branding: toDisplayBranding(updatedConfig),
       });
     }

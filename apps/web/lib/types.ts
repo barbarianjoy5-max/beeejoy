@@ -54,6 +54,14 @@ export interface SiteBrandingConfig {
   icon_storage_path?: string | null;
   wordmark_url: string | null;
   wordmark_storage_path?: string | null;
+  /**
+   * Global display sizes (px). They only affect how the stored assets render,
+   * never the uploaded files themselves. Optional so older rows, which were
+   * written before these controls existed, keep working.
+   */
+  icon_size_px?: number;
+  wordmark_size_px?: number;
+  seller_avatar_size_px?: number;
   updated_at?: string;
 }
 
