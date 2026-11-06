@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import {
   Download,
@@ -16,12 +16,123 @@ import {
   Store,
 } from "lucide-react";
 import { insforge } from "../lib/insforge";
-import { Product, PublicVendor, formatPrice, formatOrderMessage } from "../lib/types";
+import { Product, PublicVendor, formatPrice, formatOrderMessage, HomepageAnimationConfig, HeroContentConfig } from "../lib/types";
+import { DEFAULT_HERO_CONTENT, normalizeHeroContent } from "../lib/hero-content";
+import TypewriterText from "../components/TypewriterText";
+
+/**
+ * Hero copy block shared by both hero layouts (with and without the right-side
+ * video). The static heading stays visible while the highlighted phrase types.
+ */
+function HeroCopy({
+  hero,
+  centered,
+  headingClassName,
+}: {
+  hero: HeroContentConfig;
+  centered: boolean;
+  headingClassName: string;
+}) {
+  return (
+    <>
+      <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3.5 py-1 text-xs font-semibold text-amber-400">
+        <Sparkles className="h-3.5 w-3.5" />
+        <span>Official BEEEJOY Software Catalog & Creator Marketplace</span>
+      </div>
+
+      <h1 className={`mt-8 font-extrabold tracking-tight text-white ${headingClassName}`}>
+        <span className="block">{hero.heading}</span>
+        <span className="mt-1 block text-amber-400">
+          <TypewriterText
+            phrases={hero.phrases}
+            enabled={hero.typewriter_enabled}
+            cursor={hero.cursor_enabled}
+            typingSpeed={hero.typing_speed_ms}
+            deletingSpeed={hero.deleting_speed_ms}
+            pauseDuration={hero.pause_ms}
+          />
+        </span>
+      </h1>
+
+      <p
+        className={`mt-6 text-base sm:text-lg leading-8 text-zinc-400 max-w-2xl ${
+          centered ? "mx-auto" : "mx-auto lg:mx-0"
+        }`}
+      >
+        {hero.description}
+      </p>
+    </>
+  );
+}
 
 export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "free" | "premium">("all");
+  const [animation, setAnimation] = useState<HomepageAnimationConfig | null>(null);
+  const [hero, setHero] = useState<HeroContentConfig>(DEFAULT_HERO_CONTENT);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Hero content is editable from the Admin Dashboard and applies immediately.
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/site/hero-content")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (mounted && data?.hero) {
+          setHero(normalizeHeroContent(data.hero));
+        }
+      })
+      .catch((err) => console.warn("Could not load hero content:", err));
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    async function loadAnimation() {
+      try {
+        const res = await fetch("/api/homepage/animation");
+        const data = await res.json();
+        if (data?.animation?.enabled && data?.animation?.video_url) {
+          setAnimation(data.animation);
+        }
+      } catch (err) {
+        console.warn("Could not load homepage animation:", err);
+      }
+    }
+    loadAnimation();
+  }, []);
+
+  // Guarantee browser autoplay: explicitly set DOM properties and trigger play()
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !animation?.video_url) return;
+
+    video.muted = true;
+    video.defaultMuted = true;
+
+    const playVideo = () => {
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn("Autoplay was prevented by browser policy:", err);
+        });
+      }
+    };
+
+    if (video.readyState >= 2) {
+      playVideo();
+    } else {
+      video.addEventListener("loadeddata", playVideo, { once: true });
+      video.addEventListener("canplay", playVideo, { once: true });
+    }
+
+    return () => {
+      video.removeEventListener("loadeddata", playVideo);
+      video.removeEventListener("canplay", playVideo);
+    };
+  }, [animation?.video_url]);
 
   useEffect(() => {
     async function loadProducts() {
@@ -63,42 +174,90 @@ export default function HomePage() {
     return true;
   });
 
+  const hasActiveAnimation = Boolean(animation?.enabled && animation?.video_url);
+
   return (
     <div className="flex flex-col items-center">
       {/* Hero Section */}
-      <section className="relative w-full overflow-hidden px-6 py-20 sm:py-28">
+      <section className="relative w-full overflow-hidden px-6 py-16 sm:py-24">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(45%_50%_at_50%_40%,rgba(245,158,11,0.12),rgba(9,9,11,0))] pointer-events-none" />
-        <div className="mx-auto max-w-4xl text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3.5 py-1 text-xs font-semibold text-amber-400">
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>Official BEEEJOY Software Catalog & Creator Marketplace</span>
+        
+        {hasActiveAnimation ? (
+          /* Responsive 2-column layout when Hero animation is enabled */
+          <div className="mx-auto max-w-7xl">
+            <div className="grid items-center gap-10 lg:grid-cols-12 lg:gap-14">
+              {/* Left Column: Headline, Description & CTAs */}
+              <div className="text-center lg:text-left lg:col-span-7">
+                <HeroCopy hero={hero} centered={false} headingClassName="text-4xl sm:text-5xl lg:text-6xl" />
+
+                <div className="mt-10 flex flex-wrap items-center justify-center lg:justify-start gap-4">
+                  <a
+                    href="#products"
+                    className="rounded-xl bg-amber-500 px-6 py-3 text-sm font-semibold text-zinc-950 shadow-lg shadow-amber-500/25 hover:bg-amber-400 transition-all flex items-center gap-2"
+                  >
+                    <PackageCheck className="h-4 w-4" />
+                    <span>Browse Catalog</span>
+                  </a>
+                  <a
+                    href="#payments"
+                    className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-6 py-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700 hover:text-white transition-all flex items-center gap-2"
+                  >
+                    <CreditCard className="h-4 w-4" />
+                    <span>Payment Info (bKash / Nagad)</span>
+                  </a>
+                </div>
+              </div>
+
+              {/* Right Column: Seamless Dark-Blended Autoplaying Looping Animation */}
+              <div className="flex items-center justify-center lg:col-span-5">
+                <div className="relative w-full max-w-md sm:max-w-lg aspect-square overflow-hidden rounded-3xl bg-transparent">
+                  {/* Vignette blend around edges into dark background */}
+                  <div className="absolute inset-0 z-10 pointer-events-none rounded-3xl ring-1 ring-inset ring-white/5 bg-[radial-gradient(circle_at_center,transparent_55%,rgba(9,9,11,0.85)_100%)] shadow-2xl shadow-amber-500/5" />
+                  <video
+                    ref={videoRef}
+                    key={animation!.video_url!}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="auto"
+                    onLoadedMetadata={(e) => {
+                      e.currentTarget.muted = true;
+                      const p = e.currentTarget.play();
+                      if (p !== undefined) p.catch(() => {});
+                    }}
+                    className="w-full h-full object-cover object-center pointer-events-none select-none rounded-3xl"
+                  >
+                    <source src={animation!.video_url!} type="video/mp4" />
+                    <source src={animation!.video_url!} type="video/webm" />
+                  </video>
+                </div>
+              </div>
+            </div>
           </div>
+        ) : (
+          /* Preserved original centered 1-column layout when animation is disabled/absent */
+          <div className="mx-auto max-w-4xl text-center">
+            <HeroCopy hero={hero} centered headingClassName="text-4xl sm:text-6xl" />
 
-          <h1 className="mt-8 text-4xl font-extrabold tracking-tight sm:text-6xl text-white">
-            Fast, Reliable Software Downloads by <span className="text-amber-400">BEEEJOY</span>
-          </h1>
-
-          <p className="mt-6 text-base sm:text-lg leading-8 text-zinc-400 max-w-2xl mx-auto">
-            Download verified free software directly with one click, or contact product sellers to purchase premium creator tools with manual bKash & Nagad support.
-          </p>
-
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-            <a
-              href="#products"
-              className="rounded-xl bg-amber-500 px-6 py-3 text-sm font-semibold text-zinc-950 shadow-lg shadow-amber-500/25 hover:bg-amber-400 transition-all flex items-center gap-2"
-            >
-              <PackageCheck className="h-4 w-4" />
-              <span>Browse Catalog</span>
-            </a>
-            <a
-              href="#payments"
-              className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-6 py-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700 hover:text-white transition-all flex items-center gap-2"
-            >
-              <CreditCard className="h-4 w-4" />
-              <span>Payment Info (bKash / Nagad)</span>
-            </a>
+            <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+              <a
+                href="#products"
+                className="rounded-xl bg-amber-500 px-6 py-3 text-sm font-semibold text-zinc-950 shadow-lg shadow-amber-500/25 hover:bg-amber-400 transition-all flex items-center gap-2"
+              >
+                <PackageCheck className="h-4 w-4" />
+                <span>Browse Catalog</span>
+              </a>
+              <a
+                href="#payments"
+                className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-6 py-3 text-sm font-semibold text-zinc-300 hover:border-zinc-700 hover:text-white transition-all flex items-center gap-2"
+              >
+                <CreditCard className="h-4 w-4" />
+                <span>Payment Info (bKash / Nagad)</span>
+              </a>
+            </div>
           </div>
-        </div>
+        )}
       </section>
 
       {/* Catalog Section */}
