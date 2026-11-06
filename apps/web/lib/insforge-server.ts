@@ -38,6 +38,33 @@ export function getUserClient(token: string) {
   });
 }
 
+/**
+ * Strict privileged client for server-side writes and identity lookups that
+ * decide what gets recorded (e.g. website analytics).
+ *
+ * Unlike getAdminClient() there is deliberately NO fallback to the public
+ * NEXT_PUBLIC_INSFORGE_ANON_KEY: if the server-only INSFORGE_API_KEY is absent
+ * this throws, so the caller must fail closed rather than silently degrade to a
+ * low-privilege client that cannot read roles and would mis-classify traffic.
+ */
+export function getServerClient() {
+  const url = process.env.NEXT_PUBLIC_INSFORGE_URL;
+  const apiKey = process.env.INSFORGE_API_KEY;
+
+  if (!url) {
+    throw new Error("NEXT_PUBLIC_INSFORGE_URL is not configured.");
+  }
+
+  if (!apiKey) {
+    throw new Error("INSFORGE_API_KEY is not configured; privileged operation refused.");
+  }
+
+  return createClient({
+    baseUrl: url,
+    anonKey: apiKey,
+  });
+}
+
 export const SINGLE_ADMIN_UUID = "e2f6c2a3-a0e4-46bf-a13f-5b6d088f839d";
 
 export async function getAuthenticatedUser(req: Request) {

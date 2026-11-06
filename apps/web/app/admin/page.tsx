@@ -7,6 +7,7 @@ import { Product, formatPrice, HomepageAnimationConfig, SiteBrandingConfig, Hero
 import { DEFAULT_HERO_CONTENT, HERO_LIMITS, normalizeHeroContent } from "../../lib/hero-content";
 import { getYouTubeVideoId, getYouTubeEmbedUrl } from "../../lib/youtube";
 import TypewriterText from "../../components/TypewriterText";
+import WebsiteAnalyticsPanel from "../../components/WebsiteAnalyticsPanel";
 import {
   Package,
   Upload,
@@ -37,12 +38,13 @@ import {
   Save,
   ArrowUp,
   ArrowDown,
+  BarChart3,
 } from "lucide-react";
 import Link from "next/link";
 
 export default function AdminDashboardPage() {
   const { user, profile, isAdmin, isLoading: authLoading } = useAuth();
-  const [adminTab, setAdminTab] = useState<"products" | "reviews" | "sellers" | "animation" | "hero" | "branding">("products");
+  const [adminTab, setAdminTab] = useState<"products" | "reviews" | "sellers" | "animation" | "hero" | "branding" | "analytics">("products");
   const [loadingData, setLoadingData] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -1058,6 +1060,18 @@ export default function AdminDashboardPage() {
             <span className="h-2 w-2 rounded-full bg-emerald-400" title="Custom Branding Active" />
           )}
         </button>
+
+        <button
+          onClick={() => setAdminTab("analytics")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+            adminTab === "analytics"
+              ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+              : "text-zinc-400 hover:text-white hover:bg-zinc-900"
+          }`}
+        >
+          <BarChart3 className="h-4 w-4" />
+          <span>Website Analytics</span>
+        </button>
       </div>
 
       {/* Feedback banner */}
@@ -1077,6 +1091,9 @@ export default function AdminDashboardPage() {
           <span className="text-xs font-medium">{feedback.message}</span>
         </div>
       )}
+
+      {/* TAB: WEBSITE ANALYTICS */}
+      {adminTab === "analytics" && <WebsiteAnalyticsPanel />}
 
       {/* TAB 2: PENDING PRODUCT REVIEWS */}
       {adminTab === "reviews" && (

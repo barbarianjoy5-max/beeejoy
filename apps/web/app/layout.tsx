@@ -3,6 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "../lib/auth-context";
 import Navbar from "../components/Navbar";
 import AuthModal from "../components/AuthModal";
+import AnalyticsTracker from "../components/AnalyticsTracker";
 
 export const metadata: Metadata = {
   title: "BEEEJOY - Premium Software & Illustrator Extensions",
@@ -20,6 +21,7 @@ export default function RootLayout({
         <AuthProvider>
           <Navbar />
           <AuthModal />
+          <AnalyticsTracker />
           <main>{children}</main>
           <footer className="border-t border-zinc-900 bg-zinc-950/50 py-12 text-center text-xs text-zinc-600">
             <div className="mx-auto max-w-7xl px-6">
