@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "../lib/auth-context";
 import { User, LogOut, ShieldAlert, ChevronDown, PackageCheck, CreditCard, Store } from "lucide-react";
@@ -8,20 +8,62 @@ import { User, LogOut, ShieldAlert, ChevronDown, PackageCheck, CreditCard, Store
 export default function Navbar() {
   const { user, profile, isAdmin, isSeller, isLoading, signOut, openAuthModal } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [branding, setBranding] = useState<{ icon_url: string | null; wordmark_url: string | null } | null>(null);
+  // If a custom asset fails to load, fall back to the default branding.
+  const [failedAssets, setFailedAssets] = useState({ icon: false, wordmark: false });
+
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/site/branding")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (mounted && data) {
+          setBranding(data);
+        }
+      })
+      .catch((err) => console.warn("Navbar branding fetch warning:", err));
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <header className="sticky top-0 z-40 border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
         {/* Brand */}
         <Link href="/" className="flex items-center gap-3 group">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-lg font-black text-zinc-950 shadow-lg shadow-amber-500/20 group-hover:shadow-amber-500/30 transition-all">
-            B
-          </span>
-          <div>
-            <span className="text-xl font-bold tracking-tight text-white group-hover:text-amber-400 transition-colors">
-              BEEEJOY
+          {branding?.icon_url && !failedAssets.icon ? (
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-900 border border-zinc-800 p-1.5 shadow-lg shadow-black/40 group-hover:border-amber-500/40 transition-all overflow-hidden">
+              <img
+                src={branding.icon_url}
+                alt="Logo"
+                className="h-full w-full object-contain"
+                onError={() =>
+                  setFailedAssets((prev) => ({ ...prev, icon: true }))
+                }
+              />
             </span>
-            <span className="ml-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-wide text-amber-400 uppercase">
+          ) : (
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-lg font-black text-zinc-950 shadow-lg shadow-amber-500/20 group-hover:shadow-amber-500/30 transition-all">
+              B
+            </span>
+          )}
+          <div className="flex items-center gap-2">
+            {branding?.wordmark_url && !failedAssets.wordmark ? (
+              <img
+                src={branding.wordmark_url}
+                alt="BEEEJOY"
+                className="h-6 w-auto max-w-[160px] object-contain group-hover:opacity-90 transition-opacity"
+                onError={() =>
+                  setFailedAssets((prev) => ({ ...prev, wordmark: true }))
+                }
+              />
+            ) : (
+              <span className="text-xl font-bold tracking-tight text-white group-hover:text-amber-400 transition-colors">
+                BEEEJOY
+              </span>
+            )}
+            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium tracking-wide text-amber-400 uppercase">
               Software Store
             </span>
           </div>

@@ -30,6 +30,33 @@ export interface PublicVendor {
   created_at: string;
 }
 
+export interface HomepageAnimationConfig {
+  enabled: boolean;
+  video_url: string | null;
+  storage_path?: string | null;
+  updated_at?: string;
+}
+
+export interface HeroContentConfig {
+  heading: string;
+  description: string;
+  phrases: string[];
+  typewriter_enabled: boolean;
+  cursor_enabled: boolean;
+  typing_speed_ms: number;
+  deleting_speed_ms: number;
+  pause_ms: number;
+  updated_at?: string | null;
+}
+
+export interface SiteBrandingConfig {
+  icon_url: string | null;
+  icon_storage_path?: string | null;
+  wordmark_url: string | null;
+  wordmark_storage_path?: string | null;
+  updated_at?: string;
+}
+
 export interface UserProfile {
   id: string;
   email: string;
