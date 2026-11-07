@@ -29,6 +29,8 @@ interface AuthContextType {
   verifyEmail: (email: string, otp: string) => Promise<{ success: boolean; error?: string }>;
   resendVerification: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
   signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
+  sendPasswordReset: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  confirmPasswordReset: (email: string, code: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -300,6 +302,102 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const sendPasswordReset = async (
+    email: string
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
+    try {
+      const cleanEmail = email.trim();
+      if (!cleanEmail) {
+        return {
+          success: false,
+          error: "Email address is required.",
+        };
+      }
+
+      const { data, error } = await insforge.auth.sendResetPasswordEmail({
+        email: cleanEmail,
+      });
+
+      if (error) {
+        return {
+          success: false,
+          error: error.message || "Failed to send password reset code.",
+        };
+      }
+
+      return {
+        success: true,
+        message:
+          data?.message ||
+          "A 6-digit password reset code has been sent to your email.",
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err?.message || "Could not send reset code. Please try again.",
+      };
+    }
+  };
+
+  const confirmPasswordReset = async (
+    email: string,
+    code: string,
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const cleanEmail = email.trim();
+      const cleanCode = code.trim();
+
+      if (!cleanEmail || !cleanCode) {
+        return {
+          success: false,
+          error: "Email and 6-digit verification code are required.",
+        };
+      }
+
+      if (!newPassword || newPassword.length < 6) {
+        return {
+          success: false,
+          error: "Password must be at least 6 characters long.",
+        };
+      }
+
+      // Step 1: Exchange 6-digit OTP code for a password reset token
+      const { data: exchangeData, error: exchangeError } =
+        await insforge.auth.exchangeResetPasswordToken({
+          email: cleanEmail,
+          code: cleanCode,
+        });
+
+      if (exchangeError || !exchangeData?.token) {
+        return {
+          success: false,
+          error: exchangeError?.message || "Invalid or expired verification code.",
+        };
+      }
+
+      // Step 2: Reset password using the verified reset token
+      const { error: resetError } = await insforge.auth.resetPassword({
+        newPassword,
+        otp: exchangeData.token,
+      });
+
+      if (resetError) {
+        return {
+          success: false,
+          error: resetError.message || "Failed to set new password. Please try again.",
+        };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err?.message || "Password reset failed. Please try again.",
+      };
+    }
+  };
+
   const signInWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
     try {
       const redirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
@@ -366,6 +464,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signUp,
         verifyEmail,
         resendVerification,
+        sendPasswordReset,
+        confirmPasswordReset,
         signInWithGoogle,
         signOut,
         refreshProfile,

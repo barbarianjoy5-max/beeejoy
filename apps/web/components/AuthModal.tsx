@@ -2,7 +2,9 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "../lib/auth-context";
-import { X, Loader2, AlertCircle, CheckCircle2, Mail, ArrowLeft } from "lucide-react";
+import { X, Loader2, AlertCircle, CheckCircle2, Mail, ArrowLeft, KeyRound } from "lucide-react";
+
+type ViewMode = "signin" | "signup" | "verify" | "forgot_request" | "forgot_confirm";
 
 export default function AuthModal() {
   const {
@@ -14,16 +16,20 @@ export default function AuthModal() {
     signUp,
     verifyEmail,
     resendVerification,
+    sendPasswordReset,
+    confirmPasswordReset,
     pendingVerificationEmail,
     setPendingVerificationEmail,
     signInWithGoogle,
   } = useAuth();
 
-  const [view, setView] = useState<"signin" | "signup" | "verify">(authModalMode);
+  const [view, setView] = useState<ViewMode>(authModalMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [otp, setOtp] = useState("");
+  const [recoveryOtp, setRecoveryOtp] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -44,6 +50,8 @@ export default function AuthModal() {
       setError(null);
       setSuccessMessage(null);
       setOtp("");
+      setRecoveryOtp("");
+      setNewPassword("");
     }
   }, [authModalMode, isAuthModalOpen, pendingVerificationEmail]);
 
@@ -178,6 +186,117 @@ export default function AuthModal() {
     setView("signup");
   };
 
+  const handleForgotRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      setError("Please enter your email address.");
+      return;
+    }
+
+    setError(null);
+    setSuccessMessage(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await sendPasswordReset(cleanEmail);
+      if (!res.success) {
+        setError(res.error || "Failed to send reset code. Please try again.");
+      } else {
+        setView("forgot_confirm");
+        setRecoveryOtp("");
+        setNewPassword("");
+        setSuccessMessage(
+          res.message || "A 6-digit verification code has been sent to your email."
+        );
+        startResendTimer(60);
+      }
+    } catch (err: any) {
+      setError(err?.message || "An unexpected error occurred.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleForgotConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = email.trim();
+    const cleanOtp = recoveryOtp.trim();
+
+    if (!cleanEmail) {
+      setError("Email address missing. Please go back and enter your email.");
+      return;
+    }
+    if (cleanOtp.length !== 6) {
+      setError("Please enter the complete 6-digit verification code.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError("Password must be at least 6 characters long.");
+      return;
+    }
+
+    setError(null);
+    setSuccessMessage(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await confirmPasswordReset(cleanEmail, cleanOtp, newPassword);
+      if (!res.success) {
+        setError(res.error || "Failed to set password. Please check the code and try again.");
+      } else {
+        if (timerRef.current) clearInterval(timerRef.current);
+        setRecoveryOtp("");
+
+        // Attempt automatic sign-in with the newly established password
+        const signInRes = await signIn(cleanEmail, newPassword);
+        if (signInRes.success) {
+          // Modal closes automatically via signIn()
+          return;
+        }
+
+        // If automatic sign-in required manual step or failed, switch cleanly to signin view
+        setPassword(newPassword);
+        setNewPassword("");
+        setView("signin");
+        setSuccessMessage("Password set successfully! Please sign in with your new password.");
+      }
+    } catch (err: any) {
+      setError(err?.message || "An unexpected error occurred.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleResendResetCode = async () => {
+    if (resendCooldown > 0 || isResending) return;
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      setError("Email address missing. Please go back and enter your email.");
+      return;
+    }
+
+    setError(null);
+    setSuccessMessage(null);
+    setIsResending(true);
+
+    try {
+      const res = await sendPasswordReset(cleanEmail);
+      if (!res.success) {
+        setError(res.error || "Failed to resend reset code.");
+      } else {
+        setSuccessMessage(
+          res.message || "A new 6-digit verification code has been sent to your email."
+        );
+        startResendTimer(60);
+      }
+    } catch (err: any) {
+      setError(err?.message || "Could not resend code. Please try again.");
+    } finally {
+      setIsResending(false);
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     setError(null);
     setIsGoogleSubmitting(true);
@@ -207,7 +326,7 @@ export default function AuthModal() {
         {/* Close Button */}
         <button
           onClick={closeAuthModal}
-          className="absolute top-5 right-5 text-zinc-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-zinc-800"
+          className="absolute top-5 right-5 text-zinc-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-zinc-800 cursor-pointer"
           aria-label="Close"
         >
           <X className="h-5 w-5" />
@@ -216,12 +335,22 @@ export default function AuthModal() {
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 font-black text-zinc-950 shadow-md shadow-amber-500/20">
-            {view === "verify" ? <Mail className="h-5 w-5 text-zinc-950" /> : "B"}
+            {view === "verify" ? (
+              <Mail className="h-5 w-5 text-zinc-950" />
+            ) : view === "forgot_request" || view === "forgot_confirm" ? (
+              <KeyRound className="h-5 w-5 text-zinc-950" />
+            ) : (
+              "B"
+            )}
           </div>
           <div>
             <h3 className="text-lg font-bold text-white">
               {view === "verify"
                 ? "Verify Your Email"
+                : view === "forgot_request"
+                ? "Reset / Set Password"
+                : view === "forgot_confirm"
+                ? "Set New Password"
                 : view === "signin"
                 ? "Sign In to BEEEJOY"
                 : "Create Your Account"}
@@ -234,6 +363,13 @@ export default function AuthModal() {
                     {pendingVerificationEmail || email}
                   </span>
                 </>
+              ) : view === "forgot_request" ? (
+                "Enter your email to receive a password recovery code."
+              ) : view === "forgot_confirm" ? (
+                <>
+                  Enter the code sent to{" "}
+                  <span className="font-semibold text-amber-400">{email}</span>
+                </>
               ) : (
                 "Access your software licenses, activations, and downloads."
               )}
@@ -242,7 +378,7 @@ export default function AuthModal() {
         </div>
 
         {/* Tab switch (only visible in signin / signup views) */}
-        {view !== "verify" && (
+        {(view === "signin" || view === "signup") && (
           <div className="flex rounded-xl bg-zinc-950/80 p-1 mb-6 border border-zinc-800">
             <button
               type="button"
@@ -252,7 +388,7 @@ export default function AuthModal() {
                 setView("signin");
                 openAuthModal("signin");
               }}
-              className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-all ${
+              className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-all cursor-pointer ${
                 view === "signin"
                   ? "bg-amber-500 text-zinc-950 shadow-sm"
                   : "text-zinc-400 hover:text-white"
@@ -268,7 +404,7 @@ export default function AuthModal() {
                 setView("signup");
                 openAuthModal("signup");
               }}
-              className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-all ${
+              className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-all cursor-pointer ${
                 view === "signup"
                   ? "bg-amber-500 text-zinc-950 shadow-sm"
                   : "text-zinc-400 hover:text-white"
@@ -294,7 +430,7 @@ export default function AuthModal() {
           </div>
         )}
 
-        {/* VIEW 1: EMAIL OTP VERIFICATION */}
+        {/* VIEW 1: REGISTRATION EMAIL OTP VERIFICATION */}
         {view === "verify" ? (
           <form onSubmit={handleVerifyOtp} className="space-y-4">
             <div>
@@ -385,8 +521,169 @@ export default function AuthModal() {
               </div>
             </div>
           </form>
+        ) : view === "forgot_request" ? (
+          /* VIEW 2: FORGOT / SET PASSWORD REQUEST (ENTER EMAIL) */
+          <form onSubmit={handleForgotRequest} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                Email Address
+              </label>
+              <input
+                type="email"
+                required
+                autoFocus
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@domain.com"
+                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:border-amber-500 focus:outline-none transition-colors"
+              />
+              <p className="mt-1.5 text-[11px] text-zinc-500">
+                Works for both Google OAuth accounts and email/password accounts.
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting || !email.trim()}
+              className="w-full mt-2 flex items-center justify-center gap-2 rounded-xl bg-amber-500 py-3 text-xs font-bold text-zinc-950 shadow-md shadow-amber-500/20 hover:bg-amber-400 disabled:opacity-50 transition-all cursor-pointer disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Sending Code...</span>
+                </>
+              ) : (
+                <span>Send Verification Code</span>
+              )}
+            </button>
+
+            <div className="pt-3 border-t border-zinc-800/80 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setSuccessMessage(null);
+                  setView("signin");
+                }}
+                className="text-xs text-zinc-400 hover:text-white transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span>Back to Sign In</span>
+              </button>
+            </div>
+          </form>
+        ) : view === "forgot_confirm" ? (
+          /* VIEW 3: FORGOT / SET PASSWORD CONFIRM (ENTER OTP + NEW PASSWORD) */
+          <form onSubmit={handleForgotConfirm} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1.5 text-center">
+                Enter 6-Digit Verification Code
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                autoFocus
+                required
+                value={recoveryOtp}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, "").slice(0, 6);
+                  setRecoveryOtp(val);
+                  setError(null);
+                }}
+                placeholder="••••••"
+                className="w-full text-center text-2xl font-mono tracking-[0.35em] font-bold rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-amber-400 placeholder-zinc-700 focus:border-amber-500 focus:outline-none transition-colors"
+              />
+              <p className="mt-1 text-center text-[11px] text-zinc-500">
+                Check your Gmail inbox and spam folder
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                New Password
+              </label>
+              <input
+                type="password"
+                required
+                minLength={6}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Minimum 6 characters"
+                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:border-amber-500 focus:outline-none transition-colors"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting || recoveryOtp.length !== 6 || newPassword.length < 6}
+              className="w-full mt-2 flex items-center justify-center gap-2 rounded-xl bg-amber-500 py-3 text-xs font-bold text-zinc-950 shadow-md shadow-amber-500/20 hover:bg-amber-400 disabled:opacity-50 transition-all cursor-pointer disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Setting Password & Signing In...</span>
+                </>
+              ) : (
+                <span>Set Password & Sign In</span>
+              )}
+            </button>
+
+            {/* Resend and Navigation controls */}
+            <div className="pt-3 border-t border-zinc-800/80 flex flex-col items-center gap-2.5 text-xs">
+              <div className="flex items-center gap-1.5 text-zinc-400">
+                <span>Didn&apos;t receive the code?</span>
+                {resendCooldown > 0 ? (
+                  <span className="font-mono text-zinc-500 font-medium">
+                    Resend in {resendCooldown}s
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResendResetCode}
+                    disabled={isResending}
+                    className="font-semibold text-amber-400 hover:text-amber-300 transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {isResending ? "Sending..." : "Resend Code"}
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 mt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setSuccessMessage(null);
+                    setView("forgot_request");
+                  }}
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <ArrowLeft className="h-3 w-3" />
+                  <span>Change email</span>
+                </button>
+                <span className="text-zinc-700">&bull;</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (timerRef.current) clearInterval(timerRef.current);
+                    setResendCooldown(0);
+                    setError(null);
+                    setSuccessMessage(null);
+                    setRecoveryOtp("");
+                    setNewPassword("");
+                    setView("signin");
+                  }}
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+                >
+                  Back to Sign In
+                </button>
+              </div>
+            </div>
+          </form>
         ) : (
-          /* VIEW 2: SIGN IN / SIGN UP FORMS */
+          /* VIEW 4: SIGN IN / SIGN UP FORMS */
           <>
             <form onSubmit={handleSubmit} className="space-y-4">
               {view === "signup" && (
@@ -420,9 +717,26 @@ export default function AuthModal() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                  Password
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-medium text-zinc-300">
+                    Password
+                  </label>
+                  {view === "signin" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setError(null);
+                        setSuccessMessage(null);
+                        setRecoveryOtp("");
+                        setNewPassword("");
+                        setView("forgot_request");
+                      }}
+                      className="text-[11px] font-medium text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                    >
+                      Forgot / Set Password?
+                    </button>
+                  )}
+                </div>
                 <input
                   type="password"
                   required
