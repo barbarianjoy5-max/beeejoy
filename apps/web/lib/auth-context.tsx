@@ -20,10 +20,14 @@ interface AuthContextType {
   isSeller: boolean;
   isAuthModalOpen: boolean;
   authModalMode: "signin" | "signup";
+  pendingVerificationEmail: string | null;
+  setPendingVerificationEmail: (email: string | null) => void;
   openAuthModal: (mode?: "signin" | "signup") => void;
   closeAuthModal: () => void;
-  signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string; requireVerification?: boolean }>;
   signUp: (email: string, password: string, fullName?: string) => Promise<{ success: boolean; error?: string; requireVerification?: boolean }>;
+  verifyEmail: (email: string, otp: string) => Promise<{ success: boolean; error?: string }>;
+  resendVerification: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
   signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -38,6 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<"signin" | "signup">("signin");
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
 
   const openAuthModal = useCallback((mode: "signin" | "signup" = "signin") => {
     setAuthModalMode(mode);
@@ -135,12 +140,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     try {
+      const cleanEmail = email.trim();
       const { data, error } = await insforge.auth.signInWithPassword({
-        email: email.trim(),
+        email: cleanEmail,
         password,
       });
 
       if (error || !data?.user) {
+        // Specifically detect if error is due to unverified email
+        const isUnverified =
+          (error as any)?.error === "AUTH_NEED_VERIFICATION" ||
+          error?.message?.toLowerCase().includes("need_verification") ||
+          error?.message?.toLowerCase().includes("not verified") ||
+          error?.message?.toLowerCase().includes("verification") ||
+          error?.message?.toLowerCase().includes("confirm your email");
+
+        if (isUnverified) {
+          setPendingVerificationEmail(cleanEmail);
+          return {
+            success: false,
+            error: "Email verification is required before signing in. Please enter the verification code sent to your email.",
+            requireVerification: true,
+          };
+        }
+
         return {
           success: false,
           error: error?.message || "Invalid email or password",
@@ -152,6 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         fetchProfile(data.user.id, data.user.email),
         fetchVendor(data.user.id),
       ]);
+      setPendingVerificationEmail(null);
       closeAuthModal();
       return { success: true };
     } catch (err: any) {
@@ -164,8 +188,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string, fullName?: string) => {
     try {
+      const cleanEmail = email.trim();
       const { data, error } = await insforge.auth.signUp({
-        email: email.trim(),
+        email: cleanEmail,
         password,
         name: fullName?.trim() || undefined,
       });
@@ -183,11 +208,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           fetchProfile(data.user.id, data.user.email),
           fetchVendor(data.user.id),
         ]);
+        setPendingVerificationEmail(null);
         closeAuthModal();
         return { success: true };
       }
 
       // If email verification is required by InsForge settings
+      setPendingVerificationEmail(cleanEmail);
       return {
         success: true,
         requireVerification: true,
@@ -196,6 +223,79 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return {
         success: false,
         error: err?.message || "Registration request failed. Please try again.",
+      };
+    }
+  };
+
+  const verifyEmail = async (email: string, otp: string) => {
+    try {
+      const cleanEmail = email.trim();
+      const cleanOtp = otp.trim();
+
+      if (!cleanEmail || !cleanOtp) {
+        return {
+          success: false,
+          error: "Email address and 6-digit verification code are required.",
+        };
+      }
+
+      const { data, error } = await insforge.auth.verifyEmail({
+        email: cleanEmail,
+        otp: cleanOtp,
+      });
+
+      if (error || !data?.user) {
+        return {
+          success: false,
+          error: error?.message || "Invalid or expired verification code.",
+        };
+      }
+
+      setUser(data.user as User);
+      await Promise.all([
+        fetchProfile(data.user.id, data.user.email),
+        fetchVendor(data.user.id),
+      ]);
+      setPendingVerificationEmail(null);
+      closeAuthModal();
+      return { success: true };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err?.message || "Verification request failed. Please try again.",
+      };
+    }
+  };
+
+  const resendVerification = async (email: string) => {
+    try {
+      const cleanEmail = email.trim();
+      if (!cleanEmail) {
+        return {
+          success: false,
+          error: "Email address is required to resend verification code.",
+        };
+      }
+
+      const { data, error } = await insforge.auth.resendVerificationEmail({
+        email: cleanEmail,
+      });
+
+      if (error) {
+        return {
+          success: false,
+          error: error.message || "Failed to resend verification email.",
+        };
+      }
+
+      return {
+        success: true,
+        message: data?.message || "A new 6-digit verification code has been sent to your email.",
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err?.message || "Could not resend verification code. Please try again.",
       };
     }
   };
@@ -258,10 +358,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isSeller,
         isAuthModalOpen,
         authModalMode,
+        pendingVerificationEmail,
+        setPendingVerificationEmail,
         openAuthModal,
         closeAuthModal,
         signIn,
         signUp,
+        verifyEmail,
+        resendVerification,
         signInWithGoogle,
         signOut,
         refreshProfile,
