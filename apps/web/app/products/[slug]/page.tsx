@@ -27,6 +27,7 @@ interface PageProps {
 export default function ProductDetailPage({ params }: PageProps) {
   const { slug } = use(params);
   const [product, setProduct] = useState<Product | null>(null);
+  const [categoryName, setCategoryName] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -55,6 +56,16 @@ export default function ProductDetailPage({ params }: PageProps) {
             }
           }
           setProduct(data as Product);
+
+          // Fetch category name for display (public read policy)
+          if (data.category_id) {
+            const { data: catData } = await insforge.database
+              .from("categories")
+              .select("name")
+              .eq("id", data.category_id)
+              .maybeSingle();
+            if (catData?.name) setCategoryName(catData.name);
+          }
         }
       } catch (err) {
         console.error("Failed to load product:", err);
@@ -147,6 +158,11 @@ export default function ProductDetailPage({ params }: PageProps) {
                 </span>
               )}
               <span className="text-xs text-zinc-500">Official Release</span>
+              {categoryName && (
+                <span className="rounded-full border border-zinc-700 bg-zinc-800/60 px-3 py-1 text-xs font-semibold text-zinc-300">
+                  {categoryName}
+                </span>
+              )}
             </div>
 
             <h1 className="mt-4 text-3xl sm:text-4xl font-extrabold text-white">

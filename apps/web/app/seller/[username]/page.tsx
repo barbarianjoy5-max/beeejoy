@@ -27,6 +27,8 @@ interface PublicVendorData {
   bio: string | null;
   cover_url: string | null;
   avatar_url: string | null;
+  profile_picture_enabled?: boolean;
+  cover_photo_enabled?: boolean;
   created_at: string;
 }
 
@@ -144,7 +146,7 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
         style={{ marginBottom: `calc(${avatarCss} * 0.5 + 24px)` }}
       >
         <div className="relative w-full overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950">
-          {vendor.cover_url ? (
+          {vendor.cover_url && vendor.cover_photo_enabled !== false ? (
             <div className="aspect-[5/1] w-full overflow-hidden">
               <img
                 src={vendor.cover_url}
@@ -166,7 +168,7 @@ export default function PublicSellerProfilePage({ params }: PageProps) {
             className="h-24 w-24 sm:h-28 sm:w-28 rounded-full border-4 border-zinc-950 bg-zinc-800 overflow-hidden shadow-2xl shadow-black/50"
             style={{ width: avatarCss, height: avatarCss }}
           >
-            {vendor.avatar_url ? (
+            {vendor.avatar_url && vendor.profile_picture_enabled !== false ? (
               <img src={vendor.avatar_url} alt={vendor.store_name} className="h-full w-full object-cover object-center" />
             ) : (
               <div

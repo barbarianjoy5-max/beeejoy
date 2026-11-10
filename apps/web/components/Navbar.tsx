@@ -13,13 +13,36 @@ import {
   type PublicSiteBranding,
 } from "../lib/branding";
 import { User, LogOut, ShieldAlert, ChevronDown, PackageCheck, CreditCard, Store } from "lucide-react";
+import ThemeToggle from "./ThemeToggle";
 
 export default function Navbar() {
   const { user, profile, isAdmin, isSeller, isLoading, signOut, openAuthModal } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [branding, setBranding] = useState<PublicSiteBranding | null>(null);
+  const [isLightTheme, setIsLightTheme] = useState(false);
   // If a custom asset fails to load, fall back to the default branding.
-  const [failedAssets, setFailedAssets] = useState({ icon: false, wordmark: false });
+  // Keyed by URL so a broken light logo doesn't disable the dark one.
+  const [failedAssets, setFailedAssets] = useState<Set<string>>(new Set());
+
+  // Track the global light/dark theme so the header can swap logo variants.
+  useEffect(() => {
+    const sync = () =>
+      setIsLightTheme(document.documentElement.classList.contains("light"));
+    sync();
+    window.addEventListener("beeejoy-theme-change", sync);
+    return () => window.removeEventListener("beeejoy-theme-change", sync);
+  }, []);
+
+  const markAssetFailed = (url: string) =>
+    setFailedAssets((prev) => new Set(prev).add(url));
+
+  // Light theme prefers the dedicated light upload, falling back to dark.
+  const activeIconUrl = isLightTheme
+    ? branding?.icon_light_url || branding?.icon_url
+    : branding?.icon_url;
+  const activeWordmarkUrl = isLightTheme
+    ? branding?.wordmark_light_url || branding?.wordmark_url
+    : branding?.wordmark_url;
 
   // Admin-controlled display sizes. The Tailwind classes below still carry the
   // shipped defaults, so the header renders correctly before this resolves.
@@ -38,23 +61,39 @@ export default function Navbar() {
     };
   }, []);
 
+  // Warm the browser cache for both theme variants so toggling themes swaps
+  // logos instantly instead of flashing while the SVG re-downloads.
+  useEffect(() => {
+    if (!branding) return;
+    const urls = [
+      branding.icon_url,
+      branding.icon_light_url,
+      branding.wordmark_url,
+      branding.wordmark_light_url,
+    ];
+    urls.forEach((url) => {
+      if (url) {
+        const img = new Image();
+        img.src = url;
+      }
+    });
+  }, [branding]);
+
   return (
     <header className="sticky top-0 z-40 border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
         {/* Brand */}
         <Link href="/" className="flex items-center gap-3 group">
-          {branding?.icon_url && !failedAssets.icon ? (
+          {activeIconUrl && !failedAssets.has(activeIconUrl) ? (
             <span
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 border border-zinc-800 p-1.5 shadow-lg shadow-black/40 group-hover:border-amber-500/40 transition-all overflow-hidden"
               style={{ width: iconSizeCss(iconSizePx), height: iconSizeCss(iconSizePx) }}
             >
               <img
-                src={branding.icon_url}
+                src={activeIconUrl}
                 alt="Logo"
                 className="h-full w-full object-contain"
-                onError={() =>
-                  setFailedAssets((prev) => ({ ...prev, icon: true }))
-                }
+                onError={() => markAssetFailed(activeIconUrl)}
               />
             </span>
           ) : (
@@ -70,18 +109,16 @@ export default function Navbar() {
             </span>
           )}
           <div className="flex items-center gap-2">
-            {branding?.wordmark_url && !failedAssets.wordmark ? (
+            {activeWordmarkUrl && !failedAssets.has(activeWordmarkUrl) ? (
               <img
-                src={branding.wordmark_url}
+                src={activeWordmarkUrl}
                 alt="BEEEJOY"
                 className="h-6 w-auto max-w-[160px] shrink-0 object-contain group-hover:opacity-90 transition-opacity"
                 style={{
                   height: wordmarkSizeCss(wordmarkSizePx),
                   maxWidth: wordmarkMaxWidthCss(wordmarkSizePx),
                 }}
-                onError={() =>
-                  setFailedAssets((prev) => ({ ...prev, wordmark: true }))
-                }
+                onError={() => markAssetFailed(activeWordmarkUrl)}
               />
             ) : (
               <span
@@ -129,6 +166,8 @@ export default function Navbar() {
           )}
 
           <div className="h-4 w-px bg-zinc-800" />
+
+          <ThemeToggle />
 
           {isLoading ? (
             <div className="h-8 w-20 animate-pulse rounded-lg bg-zinc-900 border border-zinc-800" />

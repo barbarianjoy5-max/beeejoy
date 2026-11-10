@@ -138,6 +138,15 @@ export async function PUT(req: NextRequest) {
     const coverUrl = body.coverUrl !== undefined ? (typeof body.coverUrl === "string" ? body.coverUrl.trim() || null : null) : existingVendor.cover_url;
     const avatarUrl = body.avatarUrl !== undefined ? (typeof body.avatarUrl === "string" ? body.avatarUrl.trim() || null : null) : undefined;
 
+    // Enforce membership permissions server-side
+    if (existingVendor.profile_picture_enabled === false && avatarUrl && avatarUrl !== null) {
+      return NextResponse.json({ error: "Profile picture uploads are disabled by admin" }, { status: 403 });
+    }
+    if (existingVendor.cover_photo_enabled === false && coverUrl && coverUrl !== null) {
+      return NextResponse.json({ error: "Cover photo uploads are disabled by admin" }, { status: 403 });
+    }
+
+
     if (!storeName) {
       return NextResponse.json({ error: "Store/Seller name is required" }, { status: 400 });
     }

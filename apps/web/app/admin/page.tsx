@@ -53,6 +53,9 @@ import {
   BarChart3,
   RotateCcw,
   UserCircle2,
+  CreditCard,
+  LayoutDashboard,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -124,7 +127,9 @@ function BrandingSizeSlider({
 
 export default function AdminDashboardPage() {
   const { user, profile, isAdmin, isLoading: authLoading } = useAuth();
-  const [adminTab, setAdminTab] = useState<"products" | "reviews" | "sellers" | "animation" | "hero" | "branding" | "analytics">("products");
+  const [adminTab, setAdminTab] = useState<"overview" | "products" | "reviews" | "sellers" | "animation" | "hero" | "branding" | "analytics" | "membership">("overview");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -142,8 +147,13 @@ export default function AdminDashboardPage() {
   const [loadingBranding, setLoadingBranding] = useState(false);
   const [iconFile, setIconFile] = useState<File | null>(null);
   const [iconPreview, setIconPreview] = useState<string | null>(null);
+  const [iconLightFile, setIconLightFile] = useState<File | null>(null);
+  const [iconLightPreview, setIconLightPreview] = useState<string | null>(null);
   const [wordmarkFile, setWordmarkFile] = useState<File | null>(null);
   const [wordmarkPreview, setWordmarkPreview] = useState<string | null>(null);
+  const [wordmarkLightFile, setWordmarkLightFile] = useState<File | null>(null);
+  const [wordmarkLightPreview, setWordmarkLightPreview] = useState<string | null>(null);
+  const [brandingPreviewTheme, setBrandingPreviewTheme] = useState<"dark" | "light">("dark");
   // Unsaved slider values. Saved values live inside brandingConfig.
   const [brandingSizeDraft, setBrandingSizeDraft] = useState<BrandingSizes>(DEFAULT_BRANDING_SIZES);
 
@@ -163,6 +173,9 @@ export default function AdminDashboardPage() {
   // Sellers state
   const [sellers, setSellers] = useState<any[]>([]);
   const [loadingSellers, setLoadingSellers] = useState(false);
+  const [membershipSeller, setMembershipSeller] = useState<any | null>(null);
+  const [membershipForm, setMembershipForm] = useState<any>({});
+  const [savingMembership, setSavingMembership] = useState(false);
 
   // Form state (existing admin product management)
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
@@ -170,6 +183,8 @@ export default function AdminDashboardPage() {
   const [productSlug, setProductSlug] = useState("");
   const [productDescription, setProductDescription] = useState("");
   const [productType, setProductType] = useState<"free" | "premium">("free");
+  const [productCategoryId, setProductCategoryId] = useState("");
+  const [categories, setCategories] = useState<{ id: string; name: string; slug: string }[]>([]);
   const [productCurrency, setProductCurrency] = useState<"BDT" | "USD">("BDT");
   const [productPriceBdt, setProductPriceBdt] = useState("999");
   const [whatsappNumber, setWhatsappNumber] = useState("");
@@ -240,6 +255,123 @@ export default function AdminDashboardPage() {
   };
 
   // Load sellers
+  // Membership payments state
+  const [membershipPayments, setMembershipPayments] = useState<any[]>([]);
+  const [loadingMembershipPayments, setLoadingMembershipPayments] = useState(false);
+  const [membershipReviewLoading, setMembershipReviewLoading] = useState<string | null>(null);
+
+  // Membership pricing state
+  const [pricingPlans, setPricingPlans] = useState<any[]>([]);
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingSaving, setPricingSaving] = useState<string | null>(null);
+  const [pricingDraft, setPricingDraft] = useState<Record<string, { price: string; enabled: boolean }>>({});
+
+  const loadMembershipPricing = async () => {
+    setPricingLoading(true);
+    try {
+      const token = await getClientAccessToken();
+      const res = await fetch("/api/admin/membership-pricing", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.plans)) {
+        setPricingPlans(data.plans);
+        const draft: Record<string, { price: string; enabled: boolean }> = {};
+        for (const p of data.plans) {
+          draft[p.plan] = {
+            price: p.price != null ? String(p.price) : "",
+            enabled: !!p.enabled,
+          };
+        }
+        setPricingDraft(draft);
+      }
+    } catch (err) {
+      console.warn("Error loading membership pricing:", err);
+    } finally {
+      setPricingLoading(false);
+    }
+  };
+
+  const savePlanPricing = async (plan: string) => {
+    const draft = pricingDraft[plan];
+    if (!draft) return;
+    const priceNum = Number(draft.price);
+    if (!Number.isFinite(priceNum) || priceNum <= 0) {
+      setFeedback({ type: "error", message: "Enter a valid positive BDT price." });
+      return;
+    }
+    setPricingSaving(plan);
+    setFeedback(null);
+    try {
+      const token = await getClientAccessToken();
+      const res = await fetch("/api/admin/membership-pricing", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ plan, price: priceNum, enabled: draft.enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save pricing");
+      setFeedback({ type: "success", message: data.message || "Pricing saved." });
+      await loadMembershipPricing();
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err?.message || "Failed to save pricing" });
+    } finally {
+      setPricingSaving(null);
+    }
+  };
+
+  const loadMembershipPayments = async () => {
+    setLoadingMembershipPayments(true);
+    try {
+      const token = await getClientAccessToken();
+      const res = await fetch("/api/admin/membership-payments", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) setMembershipPayments(data.payments || []);
+    } catch (err) {
+      console.warn("Error loading membership payments:", err);
+    } finally {
+      setLoadingMembershipPayments(false);
+    }
+  };
+
+  const reviewMembershipPayment = async (paymentId: string, decision: "approved" | "rejected") => {
+    const notes = window.prompt(
+      decision === "approved"
+        ? "Approve this membership payment? Optional admin notes:"
+        : "Reject this membership payment? Optional admin notes:",
+      ""
+    );
+    if (notes === null) return; // cancelled
+
+    setMembershipReviewLoading(paymentId);
+    setFeedback(null);
+    try {
+      const token = await getClientAccessToken();
+      const res = await fetch("/api/admin/membership-payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ paymentId, decision, notes: notes || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Review failed");
+      setFeedback({ type: "success", message: `Payment ${decision}.` });
+      await loadMembershipPayments();
+      await loadSellers();
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err?.message || "Failed to review payment" });
+    } finally {
+      setMembershipReviewLoading(null);
+    }
+  };
+
   const loadSellers = async () => {
     setLoadingSellers(true);
     try {
@@ -391,17 +523,26 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const handleUploadIcon = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!iconFile) return;
+  type BrandingUploadTarget = "icon" | "wordmark" | "icon_light" | "wordmark_light";
 
-    setActionLoading("upload_icon");
+  const submitBrandingUpload = async (
+    e: React.FormEvent,
+    target: BrandingUploadTarget,
+    file: File | null,
+    setFile: (f: File | null) => void,
+    setPreview: (p: string | null) => void,
+    loadingKey: string
+  ) => {
+    e.preventDefault();
+    if (!file) return;
+
+    setActionLoading(loadingKey);
     setFeedback(null);
     try {
       const token = await getClientAccessToken();
       const formData = new FormData();
-      formData.append("target", "icon");
-      formData.append("file", iconFile);
+      formData.append("target", target);
+      formData.append("file", file);
 
       const res = await fetch("/api/admin/branding", {
         method: "POST",
@@ -409,23 +550,29 @@ export default function AdminDashboardPage() {
         body: formData,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to upload square icon");
+      if (!res.ok) throw new Error(data.error || "Failed to upload logo");
 
       setBrandingConfig(data.branding);
-      setIconFile(null);
-      setIconPreview(null);
-      setFeedback({ type: "success", message: data.message || "Square icon updated successfully!" });
+      setFile(null);
+      setPreview(null);
+      setFeedback({ type: "success", message: data.message || "Logo updated successfully!" });
     } catch (err: any) {
-      setFeedback({ type: "error", message: err?.message || "Failed to upload icon" });
+      setFeedback({ type: "error", message: err?.message || "Failed to upload logo" });
     } finally {
       setActionLoading(null);
     }
   };
 
-  const handleRemoveIcon = async () => {
-    if (!confirm("Are you sure you want to remove the custom square icon? The header will revert to the default 'B' icon.")) return;
+  const submitBrandingRemove = async (
+    action: string,
+    confirmMessage: string,
+    loadingKey: string,
+    setFile: (f: File | null) => void,
+    setPreview: (p: string | null) => void
+  ) => {
+    if (!confirm(confirmMessage)) return;
 
-    setActionLoading("remove_icon");
+    setActionLoading(loadingKey);
     setFeedback(null);
     try {
       const token = await getClientAccessToken();
@@ -435,81 +582,63 @@ export default function AdminDashboardPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ action: "remove_icon" }),
+        body: JSON.stringify({ action }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to remove icon");
+      if (!res.ok) throw new Error(data.error || "Failed to remove logo");
 
       setBrandingConfig(data.branding);
-      setIconFile(null);
-      setIconPreview(null);
-      setFeedback({ type: "success", message: data.message || "Square icon removed." });
+      setFile(null);
+      setPreview(null);
+      setFeedback({ type: "success", message: data.message || "Logo removed." });
     } catch (err: any) {
-      setFeedback({ type: "error", message: err?.message || "Failed to remove icon" });
+      setFeedback({ type: "error", message: err?.message || "Failed to remove logo" });
     } finally {
       setActionLoading(null);
     }
   };
 
-  const handleUploadWordmark = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!wordmarkFile) return;
+  const handleUploadIcon = (e: React.FormEvent) =>
+    submitBrandingUpload(e, "icon", iconFile, setIconFile, setIconPreview, "upload_icon");
+  const handleUploadIconLight = (e: React.FormEvent) =>
+    submitBrandingUpload(e, "icon_light", iconLightFile, setIconLightFile, setIconLightPreview, "upload_icon_light");
+  const handleUploadWordmark = (e: React.FormEvent) =>
+    submitBrandingUpload(e, "wordmark", wordmarkFile, setWordmarkFile, setWordmarkPreview, "upload_wordmark");
+  const handleUploadWordmarkLight = (e: React.FormEvent) =>
+    submitBrandingUpload(e, "wordmark_light", wordmarkLightFile, setWordmarkLightFile, setWordmarkLightPreview, "upload_wordmark_light");
 
-    setActionLoading("upload_wordmark");
-    setFeedback(null);
-    try {
-      const token = await getClientAccessToken();
-      const formData = new FormData();
-      formData.append("target", "wordmark");
-      formData.append("file", wordmarkFile);
-
-      const res = await fetch("/api/admin/branding", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to upload site wordmark");
-
-      setBrandingConfig(data.branding);
-      setWordmarkFile(null);
-      setWordmarkPreview(null);
-      setFeedback({ type: "success", message: data.message || "Site wordmark updated successfully!" });
-    } catch (err: any) {
-      setFeedback({ type: "error", message: err?.message || "Failed to upload wordmark" });
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleRemoveWordmark = async () => {
-    if (!confirm("Are you sure you want to remove the custom site wordmark? The header will revert to the default 'BEEEJOY' text.")) return;
-
-    setActionLoading("remove_wordmark");
-    setFeedback(null);
-    try {
-      const token = await getClientAccessToken();
-      const res = await fetch("/api/admin/branding", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ action: "remove_wordmark" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to remove wordmark");
-
-      setBrandingConfig(data.branding);
-      setWordmarkFile(null);
-      setWordmarkPreview(null);
-      setFeedback({ type: "success", message: data.message || "Site wordmark removed." });
-    } catch (err: any) {
-      setFeedback({ type: "error", message: err?.message || "Failed to remove wordmark" });
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  const handleRemoveIcon = () =>
+    submitBrandingRemove(
+      "remove_icon",
+      "Are you sure you want to remove the custom square icon? The header will revert to the default 'B' icon.",
+      "remove_icon",
+      setIconFile,
+      setIconPreview
+    );
+  const handleRemoveIconLight = () =>
+    submitBrandingRemove(
+      "remove_icon_light",
+      "Are you sure you want to remove the Light Mode square icon? The header will fall back to the Dark Mode icon.",
+      "remove_icon_light",
+      setIconLightFile,
+      setIconLightPreview
+    );
+  const handleRemoveWordmark = () =>
+    submitBrandingRemove(
+      "remove_wordmark",
+      "Are you sure you want to remove the custom site wordmark? The header will revert to the default 'BEEEJOY' text.",
+      "remove_wordmark",
+      setWordmarkFile,
+      setWordmarkPreview
+    );
+  const handleRemoveWordmarkLight = () =>
+    submitBrandingRemove(
+      "remove_wordmark_light",
+      "Are you sure you want to remove the Light Mode site wordmark? The header will fall back to the Dark Mode wordmark.",
+      "remove_wordmark_light",
+      setWordmarkLightFile,
+      setWordmarkLightPreview
+    );
 
   // ----------------------------------------------------------------------------
   // Branding display sizes
@@ -693,8 +822,24 @@ export default function AdminDashboardPage() {
       loadAnimationSettings();
       loadBrandingSettings();
       loadHeroContent();
+      loadMembershipPayments();
+      loadMembershipPricing();
+      loadCategories();
     }
   }, [isAdmin]);
+
+  // Load software categories for the product form (public read policy)
+  const loadCategories = async () => {
+    try {
+      const { data } = await insforge.database
+        .from("categories")
+        .select("id, name, slug")
+        .order("display_order", { ascending: true });
+      if (Array.isArray(data)) setCategories(data as any);
+    } catch (err) {
+      console.warn("Could not load categories:", err);
+    }
+  };
 
   // Handle title change and auto-generate slug
   const handleTitleChange = (val: string) => {
@@ -725,6 +870,7 @@ export default function AdminDashboardPage() {
     setProductSlug("");
     setProductDescription("");
     setProductType("free");
+    setProductCategoryId("");
     setProductCurrency("BDT");
     setProductPriceBdt("999");
     setWhatsappNumber("");
@@ -743,6 +889,7 @@ export default function AdminDashboardPage() {
     setProductSlug(prod.slug);
     setProductDescription(prod.description || "");
     setProductType(prod.product_type === "premium" ? "premium" : "free");
+    setProductCategoryId(prod.category_id || "");
     setProductCurrency(prod.currency === "USD" ? "USD" : "BDT");
     setProductPriceBdt((prod.price_cents / 100).toString());
     setWhatsappNumber(prod.metadata?.whatsapp_number || "");
@@ -829,6 +976,7 @@ export default function AdminDashboardPage() {
           .update({
             title: productTitle.trim(),
             slug: cleanSlug,
+            category_id: productCategoryId || null,
             description: productDescription.trim() || null,
             product_type: productType,
             price_cents: priceCents,
@@ -848,6 +996,7 @@ export default function AdminDashboardPage() {
             {
               title: productTitle.trim(),
               slug: cleanSlug,
+              category_id: productCategoryId || null,
               description: productDescription.trim() || null,
               product_type: productType,
               price_cents: priceCents,
@@ -1029,6 +1178,31 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const handleSaveMembership = async () => {
+    if (!membershipSeller) return;
+    setSavingMembership(true);
+    try {
+      const token = await getClientAccessToken();
+      const res = await fetch("/api/admin/sellers", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ vendorId: membershipSeller.id, ...membershipForm }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Membership update failed");
+      setFeedback({ type: "success", message: data.message || "Membership updated." });
+      setMembershipSeller(null);
+      await loadSellers();
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err?.message || "Failed to update membership" });
+    } finally {
+      setSavingMembership(false);
+    }
+  };
+
   if (authLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -1093,27 +1267,85 @@ export default function AdminDashboardPage() {
     null;
   const previewSellerAvatarUrl: string | null = previewSeller?.user?.avatar_url || null;
 
+  // Live header preview resolves the same theme-aware URLs the public header uses.
+  const previewIconUrl =
+    brandingPreviewTheme === "light"
+      ? brandingConfig?.icon_light_url || brandingConfig?.icon_url
+      : brandingConfig?.icon_url;
+  const previewWordmarkUrl =
+    brandingPreviewTheme === "light"
+      ? brandingConfig?.wordmark_light_url || brandingConfig?.wordmark_url
+      : brandingConfig?.wordmark_url;
+
+  // ----------------------------------------------------------------------------
+  // Grouped admin navigation
+  // ----------------------------------------------------------------------------
+  const pendingSellerApps = sellers.filter((s) => s.status === "pending").length;
+  const pendingMembershipPayments = membershipPayments.filter(
+    (p: any) => p.status === "paid_pending_review"
+  ).length;
+
+  const adminNavGroups: {
+    label: string;
+    items: { key: typeof adminTab; label: string; Icon: any; badge?: number }[];
+  }[] = [
+    {
+      label: "Overview",
+      items: [
+        { key: "overview", label: "Dashboard", Icon: LayoutDashboard },
+        { key: "analytics", label: "Website Analytics", Icon: BarChart3 },
+      ],
+    },
+    {
+      label: "Product Management",
+      items: [
+        { key: "products", label: "All Products", Icon: Package },
+        { key: "reviews", label: "Pending Reviews", Icon: Clock, badge: pendingProducts.length },
+      ],
+    },
+    {
+      label: "Seller Management",
+      items: [
+        { key: "sellers", label: "Sellers & Applications", Icon: Users, badge: pendingSellerApps },
+      ],
+    },
+    {
+      label: "Payments & Membership",
+      items: [
+        { key: "membership", label: "Membership Payments", Icon: CreditCard, badge: pendingMembershipPayments },
+      ],
+    },
+    {
+      label: "Website Customization",
+      items: [
+        { key: "animation", label: "Homepage Animation", Icon: Sparkles },
+        { key: "hero", label: "Hero Content", Icon: ImageIcon },
+        { key: "branding", label: "Site Branding", Icon: Palette },
+      ],
+    },
+  ];
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:py-10">
       {/* Header */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-400">
+          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-amber-400">
             <ShieldCheck className="h-3.5 w-3.5" />
             <span>Single Admin Control Panel</span>
           </div>
-          <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-white">
+          <h1 className="mt-3 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
             Marketplace Management
           </h1>
-          <p className="mt-1 text-xs text-zinc-400">
-            Logged in as <span className="text-zinc-200 font-mono">{user.email}</span>
+          <p className="mt-1.5 text-xs text-zinc-400">
+            Logged in as <span className="font-mono text-zinc-200">{user.email}</span>
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <Link
             href="/seller/dashboard"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3.5 py-2 text-xs font-semibold text-zinc-300 hover:text-white hover:border-zinc-700"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3.5 py-2 text-xs font-semibold text-zinc-300 shadow-sm transition-all hover:border-amber-500/50 hover:text-white"
           >
             <Store className="h-3.5 w-3.5 text-amber-400" />
             <span>Open Seller View</span>
@@ -1128,7 +1360,7 @@ export default function AdminDashboardPage() {
               loadHeroContent();
             }}
             disabled={loadingData || loadingReviews || loadingSellers || loadingAnimation || loadingBranding || loadingHero}
-            className="inline-flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-2 text-xs font-semibold text-zinc-300 hover:border-zinc-700 hover:text-white transition-all disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-2 text-xs font-semibold text-zinc-300 shadow-sm transition-all hover:border-zinc-700 hover:text-white disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loadingData || loadingAnimation || loadingBranding || loadingHero ? "animate-spin" : ""}`} />
             <span>Refresh</span>
@@ -1136,111 +1368,100 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-zinc-800/80 mb-8 pb-1 overflow-x-auto">
-        <button
-          onClick={() => setAdminTab("products")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-            adminTab === "products"
-              ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
-              : "text-zinc-400 hover:text-white hover:bg-zinc-900"
-          }`}
-        >
-          <Package className="h-4 w-4" />
-          <span>All Products ({products.length})</span>
+      {/* Sidebar navigation controls */}
+      <div className="mb-6 flex items-center gap-2">
+        <button onClick={() => setMobileDrawerOpen(true)} className="lg:hidden inline-flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3.5 py-2 text-xs font-semibold text-zinc-300 shadow-sm">
+          <LayoutDashboard className="h-3.5 w-3.5 text-amber-400" />
+          <span>Menu</span>
         </button>
-
-        <button
-          onClick={() => setAdminTab("reviews")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all relative shrink-0 ${
-            adminTab === "reviews"
-              ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
-              : "text-zinc-400 hover:text-white hover:bg-zinc-900"
-          }`}
-        >
-          <Clock className="h-4 w-4" />
-          <span>Pending Reviews</span>
-          {pendingProducts.length > 0 && (
-            <span className="rounded-full bg-amber-500 text-zinc-950 font-black text-[10px] px-2 py-0.2">
-              {pendingProducts.length}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setAdminTab("sellers")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all relative shrink-0 ${
-            adminTab === "sellers"
-              ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
-              : "text-zinc-400 hover:text-white hover:bg-zinc-900"
-          }`}
-        >
-          <Users className="h-4 w-4" />
-          <span>Sellers & Applications</span>
-          {sellers.filter((s) => s.status === "pending").length > 0 && (
-            <span className="rounded-full bg-emerald-500 text-zinc-950 font-black text-[10px] px-2 py-0.2">
-              {sellers.filter((s) => s.status === "pending").length}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setAdminTab("animation")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-            adminTab === "animation"
-              ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
-              : "text-zinc-400 hover:text-white hover:bg-zinc-900"
-          }`}
-        >
-          <Sparkles className="h-4 w-4" />
-          <span>Homepage Animation</span>
-          {animationConfig?.enabled && animationConfig?.video_url && (
-            <span className="h-2 w-2 rounded-full bg-emerald-400" title="Active on Homepage" />
-          )}
-        </button>
-
-        <button
-          onClick={() => setAdminTab("hero")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-            adminTab === "hero"
-              ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
-              : "text-zinc-400 hover:text-white hover:bg-zinc-900"
-          }`}
-        >
-          <Type className="h-4 w-4" />
-          <span>Hero Content</span>
-          {heroConfig?.typewriter_enabled && heroConfig?.phrases?.length > 0 && (
-            <span className="h-2 w-2 rounded-full bg-emerald-400" title="Typewriter Active" />
-          )}
-        </button>
-
-        <button
-          onClick={() => setAdminTab("branding")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-            adminTab === "branding"
-              ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
-              : "text-zinc-400 hover:text-white hover:bg-zinc-900"
-          }`}
-        >
-          <Palette className="h-4 w-4" />
-          <span>Site Branding</span>
-          {(brandingConfig?.icon_url || brandingConfig?.wordmark_url) && (
-            <span className="h-2 w-2 rounded-full bg-emerald-400" title="Custom Branding Active" />
-          )}
-        </button>
-
-        <button
-          onClick={() => setAdminTab("analytics")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-            adminTab === "analytics"
-              ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
-              : "text-zinc-400 hover:text-white hover:bg-zinc-900"
-          }`}
-        >
-          <BarChart3 className="h-4 w-4" />
-          <span>Website Analytics</span>
+        <button onClick={() => setSidebarCollapsed((v) => !v)} className="hidden lg:inline-flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3.5 py-2 text-xs font-semibold text-zinc-400 shadow-sm transition-all hover:border-zinc-700 hover:text-white">
+          <span>{sidebarCollapsed ? "Expand" : "Collapse"}</span>
         </button>
       </div>
+      {mobileDrawerOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 lg:hidden" onClick={() => setMobileDrawerOpen(false)}>
+          <div className="h-full w-72 overflow-y-auto bg-zinc-900 p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between border-b border-zinc-800 pb-3">
+              <span className="text-sm font-bold text-white">Admin Menu</span>
+              <button
+                onClick={() => setMobileDrawerOpen(false)}
+                className="rounded-lg border border-zinc-800 bg-zinc-950 p-1.5 text-zinc-400 hover:text-white"
+                aria-label="Close menu"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              {adminNavGroups.map((group) => (
+                <div key={group.label}>
+                  <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                    {group.label}
+                  </p>
+                  <div className="space-y-1">
+                    {group.items.map(({ key, label, Icon, badge }) => (
+                      <button
+                        key={key}
+                        onClick={() => { setAdminTab(key); setMobileDrawerOpen(false); }}
+                        className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                          adminTab === key
+                            ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                            : "text-zinc-300 hover:bg-zinc-800"
+                        }`}
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{label}</span>
+                        {badge ? (
+                          <span className="ml-auto rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-black text-zinc-950">
+                            {badge}
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="flex flex-col gap-8 lg:flex-row">
+      <aside className={`hidden lg:block shrink-0 ${sidebarCollapsed ? "lg:w-16" : "lg:w-60"} lg:sticky lg:top-6 lg:self-start`}>
+        <nav className="flex flex-col gap-5 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-3 shadow-sm">
+        {adminNavGroups.map((group) => (
+          <div key={group.label}>
+            {!sidebarCollapsed && (
+              <p className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                {group.label}
+              </p>
+            )}
+            {sidebarCollapsed && <div className="mx-3 mb-1.5 border-t border-zinc-800" />}
+            <div className="flex flex-col gap-0.5">
+              {group.items.map(({ key, label, Icon, badge }) => (
+                <button
+                  key={key}
+                  onClick={() => setAdminTab(key)}
+                  title={sidebarCollapsed ? label : undefined}
+                  className={`group flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
+                    adminTab === key
+                      ? "bg-amber-500/10 text-amber-300 border border-amber-500/25 shadow-sm"
+                      : "text-zinc-400 hover:text-white hover:bg-zinc-800/70 border border-transparent"
+                  }`}
+                >
+                  <Icon className={`h-4 w-4 shrink-0 ${adminTab === key ? "text-amber-400" : "text-zinc-500 group-hover:text-zinc-300"}`} />
+                  {!sidebarCollapsed && <span className="truncate">{label}</span>}
+                  {!sidebarCollapsed && badge ? (
+                    <span className="ml-auto rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-black text-zinc-950">
+                      {badge}
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        </nav>
+      </aside>
+      <div className="min-w-0 flex-1">
 
       {/* Feedback banner */}
       {feedback && (
@@ -1260,8 +1481,243 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
+      {/* TAB: OVERVIEW */}
+      {adminTab === "overview" && (
+        <div className="space-y-6">
+          <div className="border-b border-zinc-800 pb-3">
+            <h2 className="text-lg font-bold text-white">Admin Overview</h2>
+            <p className="text-xs text-zinc-500 mt-1">
+              Store health at a glance. Use the sidebar to manage each area.
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {[
+              { label: "Total Products", value: products.length, Icon: Package, tab: "products" as const, attention: false },
+              { label: "Pending Reviews", value: pendingProducts.length, Icon: Clock, tab: "reviews" as const, attention: pendingProducts.length > 0 },
+              { label: "Sellers", value: sellers.length, Icon: Users, tab: "sellers" as const, attention: false },
+              { label: "Pending Seller Apps", value: pendingSellerApps, Icon: Store, tab: "sellers" as const, attention: pendingSellerApps > 0 },
+              { label: "Membership Payments", value: membershipPayments.length, Icon: CreditCard, tab: "membership" as const, attention: false },
+              { label: "Payments Awaiting Review", value: pendingMembershipPayments, Icon: CreditCard, tab: "membership" as const, attention: pendingMembershipPayments > 0 },
+            ].map(({ label, value, Icon, tab, attention }) => (
+              <button
+                key={label}
+                onClick={() => setAdminTab(tab)}
+                className={`group rounded-2xl border p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
+                  attention
+                    ? "border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60"
+                    : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700 hover:bg-zinc-900"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">{label}</span>
+                  <span className={`flex h-8 w-8 items-center justify-center rounded-lg border ${
+                    attention
+                      ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                      : "border-zinc-800 bg-zinc-950 text-zinc-400 group-hover:text-amber-400"
+                  }`}>
+                    <Icon className="h-4 w-4" />
+                  </span>
+                </div>
+                <p className="mt-4 text-3xl font-extrabold tracking-tight text-white">{value}</p>
+                {attention && (
+                  <p className="mt-1 text-[11px] font-semibold text-amber-400">Needs attention</p>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div>
+            <h3 className="mb-3 text-sm font-bold text-white">Quick Actions</h3>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {adminNavGroups.flatMap((g) => g.items).filter((i) => i.key !== "overview").map(({ key, label, Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setAdminTab(key)}
+                  className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-left text-xs font-semibold text-zinc-300 shadow-sm transition-all hover:border-amber-500/40 hover:bg-zinc-900 hover:text-white"
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950 text-amber-400">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TAB: WEBSITE ANALYTICS */}
       {adminTab === "analytics" && <WebsiteAnalyticsPanel />}
+
+      {/* TAB: MEMBERSHIP PAYMENTS */}
+      {adminTab === "membership" && (
+        <div className="space-y-6">
+          <div className="border-b border-zinc-800 pb-3 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-white">Membership Payments</h2>
+              <p className="text-xs text-zinc-500 mt-1">
+                UddoktaPay seller membership payments awaiting review. Approval activates the plan via database RPC.
+              </p>
+            </div>
+            <button
+              onClick={() => { loadMembershipPayments(); loadMembershipPricing(); }}
+              disabled={loadingMembershipPayments || pricingLoading}
+              className="inline-flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:text-white disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loadingMembershipPayments || pricingLoading ? "animate-spin" : ""}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
+
+          {/* Membership Pricing */}
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+            <h3 className="text-sm font-bold text-white">Membership Pricing</h3>
+            <p className="text-[11px] text-zinc-500 mt-1 mb-4">
+              Prices are in BDT and apply to new checkouts only — existing pending payments keep their original amount.
+            </p>
+            {pricingLoading ? (
+              <div className="py-8 flex justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-amber-500" />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {pricingPlans.map((p: any) => {
+                  const draft = pricingDraft[p.plan] || { price: "", enabled: false };
+                  return (
+                    <div
+                      key={p.plan}
+                      className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3"
+                    >
+                      <div className="sm:w-28">
+                        <span className="text-sm font-bold text-white capitalize">{p.plan}</span>
+                        {!p.configured && (
+                          <span className="ml-2 rounded-full bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 text-[9px] font-bold text-rose-400 uppercase">
+                            Not configured
+                          </span>
+                        )}
+                      </div>
+                      <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+                        <span>BDT</span>
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={draft.price}
+                          onChange={(e) =>
+                            setPricingDraft((prev) => ({
+                              ...prev,
+                              [p.plan]: { ...draft, price: e.target.value },
+                            }))
+                          }
+                          className="w-28 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-white"
+                          placeholder="e.g. 500"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={draft.enabled}
+                          onChange={(e) =>
+                            setPricingDraft((prev) => ({
+                              ...prev,
+                              [p.plan]: { ...draft, enabled: e.target.checked },
+                            }))
+                          }
+                          className="h-4 w-4 accent-amber-500"
+                        />
+                        <span>{draft.enabled ? "Enabled" : "Disabled"}</span>
+                      </label>
+                      <button
+                        onClick={() => savePlanPricing(p.plan)}
+                        disabled={pricingSaving === p.plan}
+                        className="sm:ml-auto inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-1.5 text-[11px] font-bold text-zinc-950 hover:bg-amber-400 disabled:opacity-50"
+                      >
+                        {pricingSaving === p.plan ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                        <span>Save</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {loadingMembershipPayments ? (
+            <div className="py-16 flex justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
+            </div>
+          ) : membershipPayments.length === 0 ? (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-12 text-center">
+              <CreditCard className="h-12 w-12 text-zinc-600 mx-auto mb-3" />
+              <h3 className="text-base font-bold text-white">No membership payments yet</h3>
+              <p className="mt-1 text-xs text-zinc-400">Seller membership payments will appear here after gateway verification.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {membershipPayments.map((p: any) => (
+                <div
+                  key={p.id}
+                  className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5"
+                >
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-bold text-white capitalize">{p.plan} Plan</span>
+                        <span className="text-amber-400 font-black">{formatPrice(Math.round(Number(p.amount_bdt) * 100), p.currency || "BDT")}</span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border ${
+                            p.status === "paid_pending_review"
+                              ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                              : p.status === "approved"
+                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                              : p.status === "rejected" || p.status === "failed"
+                              ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                              : "bg-zinc-700/20 text-zinc-400 border-zinc-700/40"
+                          }`}
+                        >
+                          {p.status.replace(/_/g, " ")}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-zinc-400 space-y-0.5">
+                        <p>Seller: <span className="text-zinc-200 font-semibold">{p.vendor_store_name || "Unknown"}</span></p>
+                        <p>Reference: <span className="font-mono text-zinc-300">{p.reference}</span></p>
+                        {p.gateway_txn_id && (
+                          <p>Gateway Txn: <span className="font-mono text-zinc-300">{p.gateway_txn_id}</span></p>
+                        )}
+                        <p>Created: {new Date(p.created_at).toLocaleString()}</p>
+                        {p.paid_at && <p>Paid: {new Date(p.paid_at).toLocaleString()}</p>}
+                        {p.admin_notes && <p className="text-zinc-500">Notes: {p.admin_notes}</p>}
+                      </div>
+                    </div>
+
+                    {p.status === "paid_pending_review" && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => reviewMembershipPayment(p.id, "approved")}
+                          disabled={membershipReviewLoading === p.id}
+                          className="flex items-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
+                        >
+                          {membershipReviewLoading === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                          <span>Approve</span>
+                        </button>
+                        <button
+                          onClick={() => reviewMembershipPayment(p.id, "rejected")}
+                          disabled={membershipReviewLoading === p.id}
+                          className="flex items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-xs font-bold text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                          <span>Reject</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* TAB 2: PENDING PRODUCT REVIEWS */}
       {adminTab === "reviews" && (
@@ -1531,16 +1987,32 @@ export default function AdminDashboardPage() {
                     </div>
 
                     <div className="flex items-center gap-2 self-end sm:self-center">
-                      {isActive && (
-                        <Link
-                          href={`/seller/${s.slug}`}
-                          target="_blank"
-                          className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:text-white"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          <span>View Profile</span>
-                        </Link>
-                      )}
+                      <Link
+                        href={`/seller/${s.slug}`}
+                        target="_blank"
+                        className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:text-white"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        <span>View</span>
+                      </Link>
+                      <button
+                        onClick={() => {
+                          setMembershipSeller(s);
+                          setMembershipForm({
+                            product_limit: s.product_limit ?? 5,
+                            whatsapp_enabled: s.whatsapp_enabled ?? true,
+                            profile_picture_enabled: s.profile_picture_enabled ?? true,
+                            cover_photo_enabled: s.cover_photo_enabled ?? true,
+                            product_priority: s.product_priority ?? 0,
+                            showcase_enabled: s.showcase_enabled ?? false,
+                            downloadable_enabled: s.downloadable_enabled ?? true,
+                          });
+                        }}
+                        className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:text-white"
+                      >
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        <span>Membership</span>
+                      </button>
 
                       {isPending && (
                         <button
@@ -1581,7 +2053,54 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {/* TAB 4: HOMEPAGE ANIMATION */}
+      {/* Membership Modal */}
+      {membershipSeller && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-zinc-900 p-6 space-y-4">
+            <h3 className="text-lg font-bold text-white">Membership: {membershipSeller.store_name}</h3>
+            <div className="space-y-3">
+              <label className="block text-xs text-zinc-300">Plan</label>
+              <select
+                value={membershipForm.membership_plan}
+                onChange={(e) => setMembershipForm({ ...membershipForm, membership_plan: e.target.value })}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+              >
+                <option value="basic">Basic</option>
+                <option value="premium">Premium</option>
+                <option value="pro">Pro</option>
+                <option value="custom">Custom</option>
+              </select>
+
+              <label className="block text-xs text-zinc-300">Product Limit</label>
+              <input type="number" min={0} value={membershipForm.product_limit}
+                onChange={(e) => setMembershipForm({ ...membershipForm, product_limit: Number(e.target.value) })}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white" />
+
+              <label className="block text-xs text-zinc-300">Product Priority</label>
+              <input type="number" min={0} value={membershipForm.product_priority}
+                onChange={(e) => setMembershipForm({ ...membershipForm, product_priority: Number(e.target.value) })}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white" />
+
+              {["whatsapp_enabled","profile_picture_enabled","cover_photo_enabled","showcase_enabled","downloadable_enabled"].map((k) => (
+                <label key={k} className="flex items-center gap-2 text-xs text-zinc-300">
+                  <input type="checkbox" checked={!!membershipForm[k]}
+                    onChange={(e) => setMembershipForm({ ...membershipForm, [k]: e.target.checked })} />
+                  {k.replace(/_/g," ")}
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setMembershipSeller(null)} className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300">Cancel</button>
+              <button onClick={handleSaveMembership} disabled={savingMembership}
+                className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-zinc-950 disabled:opacity-50">
+                {savingMembership ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
       {adminTab === "animation" && (
         <div className="space-y-6">
           <div className="border-b border-zinc-800 pb-3">
@@ -2212,25 +2731,54 @@ export default function AdminDashboardPage() {
                   How BEEEJOY&apos;s brand header appears to site visitors right now (unsaved slider values included)
                 </p>
               </div>
-              <span className="text-[11px] font-mono text-zinc-500">
-                {brandingConfig?.updated_at
-                  ? `Last updated: ${new Date(brandingConfig.updated_at).toLocaleString()}`
-                  : "Using default branding"}
-              </span>
+              <div className="flex items-center gap-3">
+                {/* Preview theme switcher */}
+                <div className="flex rounded-lg border border-zinc-800 bg-zinc-950 p-0.5">
+                  {(["dark", "light"] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setBrandingPreviewTheme(t)}
+                      className={`rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide transition-all ${
+                        brandingPreviewTheme === t
+                          ? "bg-amber-500 text-zinc-950"
+                          : "text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[11px] font-mono text-zinc-500">
+                  {brandingConfig?.updated_at
+                    ? `Last updated: ${new Date(brandingConfig.updated_at).toLocaleString()}`
+                    : "Using default branding"}
+                </span>
+              </div>
             </div>
 
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 flex items-center gap-3 overflow-hidden">
+            <div
+              className={`rounded-xl border p-4 flex items-center gap-3 overflow-hidden transition-colors ${
+                brandingPreviewTheme === "light"
+                  ? "border-zinc-200 bg-white"
+                  : "border-zinc-800 bg-zinc-950"
+              }`}
+            >
               {/* Square Icon preview */}
-              {brandingConfig?.icon_url ? (
+              {previewIconUrl ? (
                 <span
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 border border-zinc-800 p-1.5 shadow-lg shadow-black/40 transition-all overflow-hidden"
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border p-1.5 shadow-lg transition-all overflow-hidden ${
+                    brandingPreviewTheme === "light"
+                      ? "bg-zinc-100 border-zinc-200 shadow-black/10"
+                      : "bg-zinc-900 border-zinc-800 shadow-black/40"
+                  }`}
                   style={{
                     width: iconSizeCss(brandingSizeDraft.icon_size_px),
                     height: iconSizeCss(brandingSizeDraft.icon_size_px),
                   }}
                 >
                   <img
-                    src={brandingConfig.icon_url}
+                    src={previewIconUrl}
                     alt="Square Icon"
                     className="h-full w-full object-contain"
                   />
@@ -2249,9 +2797,9 @@ export default function AdminDashboardPage() {
               )}
               {/* Wordmark preview */}
               <div className="flex items-center gap-2 min-w-0">
-                {brandingConfig?.wordmark_url ? (
+                {previewWordmarkUrl ? (
                   <img
-                    src={brandingConfig.wordmark_url}
+                    src={previewWordmarkUrl}
                     alt="BEEEJOY"
                     className="h-6 w-auto max-w-[160px] shrink-0 object-contain"
                     style={{
@@ -2261,7 +2809,9 @@ export default function AdminDashboardPage() {
                   />
                 ) : (
                   <span
-                    className="text-xl font-bold tracking-tight text-white shrink-0"
+                    className={`text-xl font-bold tracking-tight shrink-0 ${
+                      brandingPreviewTheme === "light" ? "text-zinc-900" : "text-white"
+                    }`}
                     style={{ fontSize: wordmarkTextSizeCss(brandingSizeDraft.wordmark_size_px) }}
                   >
                     BEEEJOY
@@ -2304,7 +2854,7 @@ export default function AdminDashboardPage() {
               {/* Current Icon State */}
               <div>
                 <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">
-                  Current Square Icon
+                  Current Square Icon (Dark Mode)
                 </p>
                 {brandingConfig?.icon_url ? (
                   <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-800 bg-zinc-950/80">
@@ -2367,7 +2917,7 @@ export default function AdminDashboardPage() {
               {/* Upload Form */}
               <form onSubmit={handleUploadIcon} className="space-y-4 pt-2 border-t border-zinc-800/80">
                 <label className="block text-xs font-bold text-zinc-200">
-                  {brandingConfig?.icon_url ? "Replace Square Icon (SVG)" : "Upload Square Icon (SVG)"}
+                  {brandingConfig?.icon_url ? "Replace Square Icon — Dark Mode (SVG)" : "Upload Square Icon — Dark Mode (SVG)"}
                 </label>
 
                 <div className="relative">
@@ -2430,6 +2980,114 @@ export default function AdminDashboardPage() {
                   )}
                 </button>
               </form>
+
+              {/* Light Mode variant */}
+              <div className="pt-2 border-t border-zinc-800/80 space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-zinc-200">Light Mode Logo (SVG)</label>
+                  {brandingConfig?.icon_light_url ? (
+                    <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold px-2 py-0.5">
+                      Custom Active
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-zinc-800 text-zinc-400 text-[10px] font-medium px-2 py-0.5">
+                      Using Dark Logo
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-zinc-500 -mt-2">
+                  Optional. Shown only while the site light theme is active; falls back to the Dark Mode icon.
+                </p>
+
+                {brandingConfig?.icon_light_url && (
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-zinc-800 bg-zinc-950/80">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 p-1">
+                        <img
+                          src={brandingConfig.icon_light_url}
+                          alt="Light icon"
+                          className="h-full w-full object-contain"
+                        />
+                      </div>
+                      <p className="text-[11px] text-zinc-500 font-mono truncate max-w-[180px]">
+                        {brandingConfig.icon_light_storage_path}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRemoveIconLight}
+                      disabled={actionLoading === "remove_icon_light"}
+                      className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-400 hover:bg-rose-500/20 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {actionLoading === "remove_icon_light" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                      <span>Remove</span>
+                    </button>
+                  </div>
+                )}
+
+                <form onSubmit={handleUploadIconLight} className="space-y-3">
+                  <input
+                    type="file"
+                    accept=".svg,image/svg+xml"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      setIconLightFile(file);
+                      if (file) {
+                        setIconLightPreview(URL.createObjectURL(file));
+                      } else {
+                        setIconLightPreview(null);
+                      }
+                    }}
+                    className="block w-full text-xs text-zinc-400 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border file:border-zinc-700 file:bg-zinc-800 file:text-xs file:font-semibold file:text-zinc-200 hover:file:bg-zinc-700 cursor-pointer"
+                  />
+
+                  {iconLightPreview && (
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 p-1">
+                          <img src={iconLightPreview} alt="Selected preview" className="h-full w-full object-contain" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-white truncate max-w-[200px]">{iconLightFile?.name}</p>
+                          <p className="text-[10px] text-zinc-400">{((iconLightFile?.size || 0) / 1024).toFixed(1)} KB &bull; Ready to upload</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIconLightFile(null);
+                          setIconLightPreview(null);
+                        }}
+                        className="text-xs text-zinc-400 hover:text-white"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={!iconLightFile || actionLoading === "upload_icon_light"}
+                    className="w-full rounded-xl border border-amber-500/40 bg-amber-500/10 py-2.5 text-xs font-bold text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                  >
+                    {actionLoading === "upload_icon_light" ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Validating & Uploading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4" />
+                        <span>{brandingConfig?.icon_light_url ? "Replace Light Mode Icon" : "Upload Light Mode Icon"}</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
             </div>
 
             {/* Card 2: Site Name / Wordmark */}
@@ -2460,7 +3118,7 @@ export default function AdminDashboardPage() {
               {/* Current Wordmark State */}
               <div>
                 <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">
-                  Current Site Wordmark
+                  Current Site Wordmark (Dark Mode)
                 </p>
                 {brandingConfig?.wordmark_url ? (
                   <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-800 bg-zinc-950/80">
@@ -2523,7 +3181,7 @@ export default function AdminDashboardPage() {
               {/* Upload Form */}
               <form onSubmit={handleUploadWordmark} className="space-y-4 pt-2 border-t border-zinc-800/80">
                 <label className="block text-xs font-bold text-zinc-200">
-                  {brandingConfig?.wordmark_url ? "Replace Site Wordmark (SVG)" : "Upload Site Wordmark (SVG)"}
+                  {brandingConfig?.wordmark_url ? "Replace Site Wordmark — Dark Mode (SVG)" : "Upload Site Wordmark — Dark Mode (SVG)"}
                 </label>
 
                 <div className="relative">
@@ -2586,6 +3244,114 @@ export default function AdminDashboardPage() {
                   )}
                 </button>
               </form>
+
+              {/* Light Mode variant */}
+              <div className="pt-2 border-t border-zinc-800/80 space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-zinc-200">Light Mode Logo (SVG)</label>
+                  {brandingConfig?.wordmark_light_url ? (
+                    <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold px-2 py-0.5">
+                      Custom Active
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-zinc-800 text-zinc-400 text-[10px] font-medium px-2 py-0.5">
+                      Using Dark Logo
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-zinc-500 -mt-2">
+                  Optional. Shown only while the site light theme is active; falls back to the Dark Mode wordmark.
+                </p>
+
+                {brandingConfig?.wordmark_light_url && (
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-zinc-800 bg-zinc-950/80">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 px-2 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900">
+                        <img
+                          src={brandingConfig.wordmark_light_url}
+                          alt="Light wordmark"
+                          className="h-5 w-auto max-w-[140px] object-contain"
+                        />
+                      </div>
+                      <p className="text-[11px] text-zinc-500 font-mono truncate max-w-[180px]">
+                        {brandingConfig.wordmark_light_storage_path}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRemoveWordmarkLight}
+                      disabled={actionLoading === "remove_wordmark_light"}
+                      className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-400 hover:bg-rose-500/20 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {actionLoading === "remove_wordmark_light" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                      <span>Remove</span>
+                    </button>
+                  </div>
+                )}
+
+                <form onSubmit={handleUploadWordmarkLight} className="space-y-3">
+                  <input
+                    type="file"
+                    accept=".svg,image/svg+xml"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      setWordmarkLightFile(file);
+                      if (file) {
+                        setWordmarkLightPreview(URL.createObjectURL(file));
+                      } else {
+                        setWordmarkLightPreview(null);
+                      }
+                    }}
+                    className="block w-full text-xs text-zinc-400 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border file:border-zinc-700 file:bg-zinc-800 file:text-xs file:font-semibold file:text-zinc-200 hover:file:bg-zinc-700 cursor-pointer"
+                  />
+
+                  {wordmarkLightPreview && (
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 px-2 items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800">
+                          <img src={wordmarkLightPreview} alt="Selected preview" className="h-5 w-auto max-w-[140px] object-contain" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-white truncate max-w-[200px]">{wordmarkLightFile?.name}</p>
+                          <p className="text-[10px] text-zinc-400">{((wordmarkLightFile?.size || 0) / 1024).toFixed(1)} KB &bull; Ready to upload</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWordmarkLightFile(null);
+                          setWordmarkLightPreview(null);
+                        }}
+                        className="text-xs text-zinc-400 hover:text-white"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={!wordmarkLightFile || actionLoading === "upload_wordmark_light"}
+                    className="w-full rounded-xl border border-amber-500/40 bg-amber-500/10 py-2.5 text-xs font-bold text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                  >
+                    {actionLoading === "upload_wordmark_light" ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Validating & Uploading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4" />
+                        <span>{brandingConfig?.wordmark_light_url ? "Replace Light Mode Wordmark" : "Upload Light Mode Wordmark"}</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
             </div>
           </div>
 
@@ -2833,6 +3599,28 @@ export default function AdminDashboardPage() {
                     placeholder="Describe the software package..."
                     className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-2 text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none"
                   />
+                </div>
+
+                {/* Software Category */}
+                <div>
+                  <label className="block font-bold uppercase text-zinc-400 mb-1.5">
+                    Software Category <span className="text-rose-400">*</span>
+                  </label>
+                  <select
+                    required
+                    value={productCategoryId}
+                    onChange={(e) => setProductCategoryId(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-2.5 text-zinc-100 focus:border-amber-500 focus:outline-none cursor-pointer"
+                  >
+                    <option value="" disabled>
+                      Select a category
+                    </option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Product Type & Price */}
@@ -3153,6 +3941,9 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       )}
+      </div>
+      </div>
     </div>
   );
 }
+

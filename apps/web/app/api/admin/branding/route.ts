@@ -74,12 +74,14 @@ export async function POST(req: NextRequest) {
     // Case 1: Upload (multipart/form-data)
     if (contentType.includes("multipart/form-data")) {
       const formData = await req.formData();
-      const target = (formData.get("target") || formData.get("type")) as string; // "icon" | "wordmark"
+      const target = (formData.get("target") || formData.get("type")) as string;
+      // "icon"/"wordmark" = Dark-mode assets; "*_light" = Light-mode overrides.
+      const VALID_TARGETS = ["icon", "wordmark", "icon_light", "wordmark_light"];
       const file = formData.get("file") as File | null;
 
-      if (!target || (target !== "icon" && target !== "wordmark")) {
+      if (!target || !VALID_TARGETS.includes(target)) {
         return NextResponse.json(
-          { error: "Invalid target. Must specify 'icon' or 'wordmark'." },
+          { error: "Invalid target. Must be icon, wordmark, icon_light or wordmark_light." },
           { status: 400 }
         );
       }
@@ -120,7 +122,7 @@ export async function POST(req: NextRequest) {
 
       const cleanSvg = validation.sanitizedSvg;
       const svgBlob = new Blob([cleanSvg], { type: "image/svg+xml" });
-      const storagePath = `branding/${target}-${Date.now()}.svg`;
+      const storagePath = `branding/${target.replace("_", "-")}-${Date.now()}.svg`;
 
       // Upload to public-assets
       const { error: uploadErr } = await admin.adminDb.storage
@@ -142,13 +144,19 @@ export async function POST(req: NextRequest) {
       const publicUrl = urlData?.publicUrl || null;
 
       // Prepare updated config
-      const previousPath = target === "icon" ? currentConfig.icon_storage_path : currentConfig.wordmark_storage_path;
+      const FIELD_MAP: Record<string, { url: keyof SiteBrandingConfig; path: keyof SiteBrandingConfig; label: string }> = {
+        icon: { url: "icon_url", path: "icon_storage_path", label: "Square icon (Dark)" },
+        wordmark: { url: "wordmark_url", path: "wordmark_storage_path", label: "Site wordmark (Dark)" },
+        icon_light: { url: "icon_light_url", path: "icon_light_storage_path", label: "Square icon (Light)" },
+        wordmark_light: { url: "wordmark_light_url", path: "wordmark_light_storage_path", label: "Site wordmark (Light)" },
+      };
+      const fields = FIELD_MAP[target];
+      const previousPath = currentConfig[fields.path] as string | null | undefined;
 
       const updatedConfig: SiteBrandingConfig = {
         ...currentConfig,
-        ...(target === "icon"
-          ? { icon_url: publicUrl, icon_storage_path: storagePath }
-          : { wordmark_url: publicUrl, wordmark_storage_path: storagePath }),
+        [fields.url]: publicUrl,
+        [fields.path]: storagePath,
         updated_at: new Date().toISOString(),
       };
 
@@ -185,7 +193,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `${target === "icon" ? "Square icon" : "Site wordmark"} updated successfully.`,
+        message: `${fields.label} updated successfully.`,
         branding: toDisplayBranding(updatedConfig),
       });
     }
@@ -194,15 +202,21 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const action = body.action;
 
-    if (action === "remove_icon" || action === "remove_wordmark") {
-      const isIcon = action === "remove_icon";
-      const oldPath = isIcon ? currentConfig.icon_storage_path : currentConfig.wordmark_storage_path;
+    const REMOVE_MAP: Record<string, { url: keyof SiteBrandingConfig; path: keyof SiteBrandingConfig; label: string }> = {
+      remove_icon: { url: "icon_url", path: "icon_storage_path", label: "Square icon (Dark)" },
+      remove_wordmark: { url: "wordmark_url", path: "wordmark_storage_path", label: "Site wordmark (Dark)" },
+      remove_icon_light: { url: "icon_light_url", path: "icon_light_storage_path", label: "Square icon (Light)" },
+      remove_wordmark_light: { url: "wordmark_light_url", path: "wordmark_light_storage_path", label: "Site wordmark (Light)" },
+    };
+
+    if (action && action in REMOVE_MAP) {
+      const fields = REMOVE_MAP[action];
+      const oldPath = currentConfig[fields.path] as string | null | undefined;
 
       const updatedConfig: SiteBrandingConfig = {
         ...currentConfig,
-        ...(isIcon
-          ? { icon_url: null, icon_storage_path: null }
-          : { wordmark_url: null, wordmark_storage_path: null }),
+        [fields.url]: null,
+        [fields.path]: null,
         updated_at: new Date().toISOString(),
       };
 
@@ -236,7 +250,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `${isIcon ? "Square icon" : "Site wordmark"} removed. Reverted to default.`,
+        message: `${fields.label} removed. Reverted to default.`,
         branding: toDisplayBranding(updatedConfig),
       });
     }

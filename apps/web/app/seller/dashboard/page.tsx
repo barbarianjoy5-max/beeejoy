@@ -49,6 +49,8 @@ export default function SellerDashboardPage() {
   const [productSlug, setProductSlug] = useState("");
   const [productDescription, setProductDescription] = useState("");
   const [productType, setProductType] = useState<"free" | "premium">("free");
+  const [productCategoryId, setProductCategoryId] = useState("");
+  const [categories, setCategories] = useState<{ id: string; name: string; slug: string }[]>([]);
   const [productCurrency, setProductCurrency] = useState<"BDT" | "USD">("BDT");
   const [productPrice, setProductPrice] = useState("999");
   const [whatsappNumber, setWhatsappNumber] = useState("");
@@ -79,6 +81,35 @@ export default function SellerDashboardPage() {
   const [removeAvatar, setRemoveAvatar] = useState(false);
   const [removeCover, setRemoveCover] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+
+  // Membership payment state
+  const [membershipLoading, setMembershipLoading] = useState<string | null>(null);
+  const [membershipError, setMembershipError] = useState<string | null>(null);
+
+  const startMembershipCheckout = async (plan: "basic" | "premium" | "pro") => {
+    if (!user) return;
+    setMembershipError(null);
+    setMembershipLoading(plan);
+    try {
+      const token = await getClientAccessToken();
+      const res = await fetch("/api/membership/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ plan }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.payment_url) {
+        throw new Error(data?.error || "Could not start membership payment.");
+      }
+      window.location.href = data.payment_url;
+    } catch (err: any) {
+      setMembershipError(err?.message || "Membership checkout failed.");
+      setMembershipLoading(null);
+    }
+  };
 
   // Load seller's products
   const loadSellerProducts = useCallback(async () => {
@@ -125,6 +156,22 @@ export default function SellerDashboardPage() {
       loadSellerProducts();
     }
   }, [isSeller, loadSellerProducts]);
+
+  // Load software categories for the product form (public read policy)
+  useEffect(() => {
+    if (!isSeller) return;
+    (async () => {
+      try {
+        const { data } = await insforge.database
+          .from("categories")
+          .select("id, name, slug")
+          .order("display_order", { ascending: true });
+        if (Array.isArray(data)) setCategories(data as any);
+      } catch {
+        // categories are optional for the form
+      }
+    })();
+  }, [isSeller]);
 
   // Auto-slug generator for new product
   const handleProductTitleChange = (val: string) => {
@@ -200,6 +247,7 @@ export default function SellerDashboardPage() {
     setProductSlug("");
     setProductDescription("");
     setProductType("free");
+    setProductCategoryId("");
     setProductCurrency("BDT");
     setProductPrice("999");
     setWhatsappNumber("");
@@ -224,6 +272,7 @@ export default function SellerDashboardPage() {
     setProductSlug(prod.slug);
     setProductDescription(prod.description || "");
     setProductType(prod.product_type === "premium" ? "premium" : "free");
+    setProductCategoryId(prod.category_id || "");
     setProductCurrency((prod.currency === "USD" ? "USD" : "BDT"));
     setProductPrice((prod.price_cents / 100).toString());
     setWhatsappNumber(prod.metadata?.whatsapp_number || "");
@@ -397,6 +446,7 @@ export default function SellerDashboardPage() {
           slug: cleanSlug,
           description: productDescription.trim(),
           productType,
+          categoryId: productCategoryId || null,
           currency: productCurrency,
           price: productPrice,
           whatsappNumber,
@@ -781,6 +831,69 @@ export default function SellerDashboardPage() {
             </div>
           </div>
 
+          {/* Membership Plan */}
+          {vendor && vendor.status === "active" && (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Seller Membership</h3>
+                  <p className="text-[11px] text-zinc-500 mt-0.5">
+                    Current plan: <span className="font-bold text-amber-400 uppercase">{vendor.membership_plan || "basic"}</span>
+                  </p>
+                </div>
+                <p className="text-[11px] text-zinc-500">Payments are verified manually by admin before activation.</p>
+              </div>
+
+              {membershipError && (
+                <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                  {membershipError}
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                {(["basic", "premium", "pro"] as const).map((plan) => {
+                  const isCurrent = (vendor.membership_plan || "basic") === plan;
+                  return (
+                    <div
+                      key={plan}
+                      className={`rounded-xl border p-4 ${
+                        isCurrent
+                          ? "border-amber-500/40 bg-amber-500/5"
+                          : "border-zinc-800 bg-zinc-950/60"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-white capitalize">{plan}</span>
+                        {isCurrent && (
+                          <span className="rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[9px] font-bold text-amber-400 uppercase">
+                            Current
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-[10px] text-zinc-500">
+                        {plan === "basic" && "5 products · priority 0"}
+                        {plan === "premium" && "25 products · priority 5 · cover photo"}
+                        {plan === "pro" && "100 products · priority 10 · showcase"}
+                      </p>
+                      {!isCurrent && (
+                        <button
+                          onClick={() => startMembershipCheckout(plan)}
+                          disabled={membershipLoading !== null}
+                          className="mt-3 w-full rounded-lg bg-amber-500 py-2 text-[11px] font-bold text-zinc-950 hover:bg-amber-400 disabled:opacity-50 transition-all"
+                        >
+                          {membershipLoading === plan ? "Redirecting..." : `Upgrade to ${plan}`}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-3 text-[10px] text-zinc-600">
+                Checkout opens the secure payment gateway. Membership activates only after admin approval.
+              </p>
+            </div>
+          )}
+
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
             <h3 className="text-sm font-bold text-white mb-2">Seller Guidelines</h3>
             <ul className="text-xs text-zinc-400 space-y-2 list-disc list-inside">
@@ -958,6 +1071,27 @@ export default function SellerDashboardPage() {
                   placeholder="e.g. Illustrator Vector Auto-Align"
                   className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-amber-500 focus:outline-none"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  Software Category <span className="text-rose-400">*</span>
+                </label>
+                <select
+                  required
+                  value={productCategoryId}
+                  onChange={(e) => setProductCategoryId(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-2.5 text-sm text-white focus:border-amber-500 focus:outline-none cursor-pointer"
+                >
+                  <option value="" disabled>
+                    Select a category
+                  </option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -1349,10 +1483,14 @@ export default function SellerDashboardPage() {
 
               {/* Cover actions */}
               <div className="flex items-center gap-3 mt-2">
-                <label className="cursor-pointer rounded-lg bg-zinc-800 px-4 py-2 text-xs font-bold text-zinc-200 hover:bg-zinc-700 transition-colors">
-                  {profileCoverUrl || coverPreview ? "Change Cover" : "Upload Cover"}
-                  <input type="file" accept="image/*" className="hidden" onChange={handleCoverChange} />
-                </label>
+                {(vendor as any)?.cover_photo_enabled !== false ? (
+                  <label className="cursor-pointer rounded-lg bg-zinc-800 px-4 py-2 text-xs font-bold text-zinc-200 hover:bg-zinc-700 transition-colors">
+                    {profileCoverUrl || coverPreview ? "Change Cover" : "Upload Cover"}
+                    <input type="file" accept="image/*" className="hidden" onChange={handleCoverChange} />
+                  </label>
+                ) : (
+                  <span className="text-xs text-rose-400">Cover photo uploads disabled by admin</span>
+                )}
                 {(!removeCover && (profileCoverUrl || coverPreview)) && (
                   <button
                     type="button"
@@ -1380,10 +1518,14 @@ export default function SellerDashboardPage() {
                   )}
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="cursor-pointer rounded-lg bg-zinc-800 px-4 py-2 text-xs font-bold text-zinc-200 hover:bg-zinc-700 transition-colors inline-block">
-                    {profileAvatarUrl || avatarPreview ? "Change Photo" : "Upload Photo"}
-                    <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
-                  </label>
+                  {(vendor as any)?.profile_picture_enabled !== false ? (
+                    <label className="cursor-pointer rounded-lg bg-zinc-800 px-4 py-2 text-xs font-bold text-zinc-200 hover:bg-zinc-700 transition-colors inline-block">
+                      {profileAvatarUrl || avatarPreview ? "Change Photo" : "Upload Photo"}
+                      <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+                    </label>
+                  ) : (
+                    <span className="text-xs text-rose-400">Profile picture uploads disabled by admin</span>
+                  )}
                   {(!removeAvatar && (profileAvatarUrl || avatarPreview)) && (
                     <button
                       type="button"

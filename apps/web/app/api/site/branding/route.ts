@@ -33,6 +33,8 @@ export async function GET() {
     return NextResponse.json({
       icon_url: config?.icon_url || null,
       wordmark_url: config?.wordmark_url || null,
+      icon_light_url: config?.icon_light_url || null,
+      wordmark_light_url: config?.wordmark_light_url || null,
       // Read-only display sizes so the public header and seller profiles render
       // exactly what the admin saved. Writing them stays admin-only.
       ...normalizeBrandingSizes(stored),

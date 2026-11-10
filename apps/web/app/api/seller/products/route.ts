@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
     const thumbnailUrl = typeof body.thumbnailUrl === "string" ? body.thumbnailUrl.trim() : null;
     const zipStoragePath = typeof body.zipStoragePath === "string" ? body.zipStoragePath.trim() : null;
     const zipSize = typeof body.zipSize === "number" ? body.zipSize : null;
+    const categoryId = typeof body.categoryId === "string" && body.categoryId.trim() ? body.categoryId.trim() : null;
 
     if (!title) {
       return NextResponse.json({ error: "Product name is required" }, { status: 400 });
@@ -77,6 +78,18 @@ export async function POST(req: NextRequest) {
         { error: `The product slug "${cleanSlug}" is already taken.` },
         { status: 409 }
       );
+    }
+
+    // Validate category exists when provided
+    if (categoryId) {
+      const { data: cat } = await auth.adminDb.database
+        .from("categories")
+        .select("id")
+        .eq("id", categoryId)
+        .maybeSingle();
+      if (!cat) {
+        return NextResponse.json({ error: "Selected category is invalid." }, { status: 400 });
+      }
     }
 
     // WhatsApp & Price Validation
@@ -132,6 +145,7 @@ export async function POST(req: NextRequest) {
       .insert([
         {
           vendor_id: auth.vendor.id,
+          category_id: categoryId,
           title,
           slug: cleanSlug,
           description: description || null,
@@ -227,6 +241,12 @@ export async function PUT(req: NextRequest) {
     const thumbnailUrl = typeof body.thumbnailUrl === "string" ? body.thumbnailUrl.trim() : existingProd.thumbnail_url;
     const zipStoragePath = typeof body.zipStoragePath === "string" ? body.zipStoragePath.trim() : null;
     const zipSize = typeof body.zipSize === "number" ? body.zipSize : null;
+    const categoryId =
+      body.categoryId === null
+        ? null
+        : typeof body.categoryId === "string" && body.categoryId.trim()
+        ? body.categoryId.trim()
+        : existingProd.category_id || null;
 
     const cleanSlug = rawSlug
       .toLowerCase()
@@ -248,6 +268,17 @@ export async function PUT(req: NextRequest) {
           { error: `The product slug "${cleanSlug}" is already taken.` },
           { status: 409 }
         );
+      }
+    }
+
+    if (categoryId) {
+      const { data: cat } = await auth.adminDb.database
+        .from("categories")
+        .select("id")
+        .eq("id", categoryId)
+        .maybeSingle();
+      if (!cat) {
+        return NextResponse.json({ error: "Selected category is invalid." }, { status: 400 });
       }
     }
 
@@ -321,6 +352,7 @@ export async function PUT(req: NextRequest) {
       .update({
         title,
         slug: cleanSlug,
+        category_id: categoryId,
         description: description || null,
         product_type: productType,
         price_cents: priceCents,

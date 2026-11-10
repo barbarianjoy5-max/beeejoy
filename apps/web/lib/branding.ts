@@ -10,9 +10,14 @@ export const BRANDING_BUCKET = "public-assets";
 export const BRANDING_ASSET_ROUTE = "/api/site/branding/asset";
 
 export type BrandingTarget = "icon" | "wordmark";
+export type BrandingTheme = "dark" | "light";
 
 export function isBrandingTarget(value: unknown): value is BrandingTarget {
   return value === "icon" || value === "wordmark";
+}
+
+export function isBrandingTheme(value: unknown): value is BrandingTheme {
+  return value === "dark" || value === "light";
 }
 
 // ----------------------------------------------------------------------------
@@ -107,6 +112,18 @@ export function normalizeSiteBranding(value: unknown): SiteBrandingConfig {
     ...raw,
     icon_url: typeof raw.icon_url === "string" ? raw.icon_url : null,
     wordmark_url: typeof raw.wordmark_url === "string" ? raw.wordmark_url : null,
+    icon_light_url:
+      typeof raw.icon_light_url === "string" ? raw.icon_light_url : null,
+    icon_light_storage_path:
+      typeof raw.icon_light_storage_path === "string"
+        ? raw.icon_light_storage_path
+        : null,
+    wordmark_light_url:
+      typeof raw.wordmark_light_url === "string" ? raw.wordmark_light_url : null,
+    wordmark_light_storage_path:
+      typeof raw.wordmark_light_storage_path === "string"
+        ? raw.wordmark_light_storage_path
+        : null,
     ...normalizeBrandingSizes(raw),
   };
 }
@@ -156,10 +173,12 @@ function assetVersion(storagePath: string): string {
  */
 export function brandingAssetUrl(
   target: BrandingTarget,
-  storagePath?: string | null
+  storagePath?: string | null,
+  theme: BrandingTheme = "dark"
 ): string | null {
   if (!storagePath) return null;
-  return `${BRANDING_ASSET_ROUTE}?target=${target}&v=${assetVersion(storagePath)}`;
+  const themeParam = theme === "light" ? "&theme=light" : "";
+  return `${BRANDING_ASSET_ROUTE}?target=${target}&v=${assetVersion(storagePath)}${themeParam}`;
 }
 
 /**
@@ -182,6 +201,19 @@ export function toDisplayBranding(
       brandingAssetUrl("wordmark", normalized.wordmark_storage_path) ||
       normalized.wordmark_url ||
       null,
+    // Light-theme assets resolve through the same route with theme=light.
+    // They stay null when no light upload exists so consumers can fall back
+    // to the dark asset (or the built-in default).
+    icon_light_url: brandingAssetUrl(
+      "icon",
+      normalized.icon_light_storage_path,
+      "light"
+    ),
+    wordmark_light_url: brandingAssetUrl(
+      "wordmark",
+      normalized.wordmark_light_storage_path,
+      "light"
+    ),
   };
 }
 
@@ -192,6 +224,8 @@ export function toDisplayBranding(
 export interface PublicSiteBranding extends BrandingSizes {
   icon_url: string | null;
   wordmark_url: string | null;
+  icon_light_url: string | null;
+  wordmark_light_url: string | null;
 }
 
 /**
@@ -208,6 +242,10 @@ export async function fetchPublicSiteBranding(): Promise<PublicSiteBranding | nu
     return {
       icon_url: typeof data.icon_url === "string" ? data.icon_url : null,
       wordmark_url: typeof data.wordmark_url === "string" ? data.wordmark_url : null,
+      icon_light_url:
+        typeof data.icon_light_url === "string" ? data.icon_light_url : null,
+      wordmark_light_url:
+        typeof data.wordmark_light_url === "string" ? data.wordmark_light_url : null,
       ...normalizeBrandingSizes(data),
     };
   } catch (err) {

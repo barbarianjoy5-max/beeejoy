@@ -16,6 +16,14 @@ export interface Vendor {
   status: VendorStatus;
   commission_rate: number;
   payout_info?: Record<string, any>;
+  membership_plan?: "basic" | "premium" | "pro" | "custom" | null;
+  product_limit?: number | null;
+  product_priority?: number | null;
+  whatsapp_enabled?: boolean | null;
+  profile_picture_enabled?: boolean | null;
+  cover_photo_enabled?: boolean | null;
+  showcase_enabled?: boolean | null;
+  downloadable_enabled?: boolean | null;
   created_at: string;
   updated_at: string;
 }
@@ -54,6 +62,16 @@ export interface SiteBrandingConfig {
   icon_storage_path?: string | null;
   wordmark_url: string | null;
   wordmark_storage_path?: string | null;
+  /**
+   * Light-theme variants. The fields above are the Dark-mode assets (and the
+   * defaults for existing installs); these are optional overrides used only
+   * while the global light theme is active. When unset, the dark asset is
+   * shown in both themes.
+   */
+  icon_light_url?: string | null;
+  icon_light_storage_path?: string | null;
+  wordmark_light_url?: string | null;
+  wordmark_light_storage_path?: string | null;
   /**
    * Global display sizes (px). They only affect how the stored assets render,
    * never the uploaded files themselves. Optional so older rows, which were

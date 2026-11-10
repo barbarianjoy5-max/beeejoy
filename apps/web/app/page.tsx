@@ -69,6 +69,8 @@ export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "free" | "premium">("all");
+  const [categories, setCategories] = useState<{ id: string; name: string; slug: string }[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [animation, setAnimation] = useState<HomepageAnimationConfig | null>(null);
   const [hero, setHero] = useState<HeroContentConfig>(DEFAULT_HERO_CONTENT);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -158,6 +160,15 @@ export default function HomePage() {
 
           setProducts(enriched as Product[]);
         }
+
+        // Load software categories for the dynamic filter (public read policy)
+        const { data: catsData } = await insforge.database
+          .from("categories")
+          .select("id, name, slug")
+          .order("display_order", { ascending: true });
+        if (Array.isArray(catsData)) {
+          setCategories(catsData as any);
+        }
       } catch (err) {
         console.error("Failed to load products:", err);
       } finally {
@@ -169,9 +180,9 @@ export default function HomePage() {
   }, []);
 
   const filteredProducts = products.filter((p) => {
-    if (filter === "free") return p.product_type === "free";
-    if (filter === "premium") return p.product_type === "premium";
-    return true;
+    if (filter === "free") return p.product_type === "free" && (categoryFilter === "all" || p.category_id === categoryFilter);
+    if (filter === "premium") return p.product_type === "premium" && (categoryFilter === "all" || p.category_id === categoryFilter);
+    return categoryFilter === "all" || p.category_id === categoryFilter;
   });
 
   const hasActiveAnimation = Boolean(animation?.enabled && animation?.video_url);
@@ -180,7 +191,7 @@ export default function HomePage() {
     <div className="flex flex-col items-center">
       {/* Hero Section */}
       <section className="relative w-full overflow-hidden px-6 py-16 sm:py-24">
-        <div className="absolute inset-0 -z-10 bg-[radial-gradient(45%_50%_at_50%_40%,rgba(245,158,11,0.12),rgba(9,9,11,0))] pointer-events-none" />
+        <div className="absolute inset-0 -z-10 bg-[radial-gradient(45%_50%_at_50%_40%,rgba(245,158,11,0.12),rgb(var(--zinc-950)_/_0))] pointer-events-none" />
         
         {hasActiveAnimation ? (
           /* Responsive 2-column layout when Hero animation is enabled */
@@ -212,7 +223,7 @@ export default function HomePage() {
               <div className="flex items-center justify-center lg:col-span-5">
                 <div className="relative w-full max-w-md sm:max-w-lg aspect-square overflow-hidden rounded-3xl bg-transparent">
                   {/* Vignette blend around edges into dark background */}
-                  <div className="absolute inset-0 z-10 pointer-events-none rounded-3xl ring-1 ring-inset ring-white/5 bg-[radial-gradient(circle_at_center,transparent_55%,rgba(9,9,11,0.85)_100%)] shadow-2xl shadow-amber-500/5" />
+                  <div className="absolute inset-0 z-10 pointer-events-none rounded-3xl ring-1 ring-inset ring-white/5 bg-[radial-gradient(circle_at_center,transparent_55%,rgb(var(--zinc-950)_/_0.85)_100%)] shadow-2xl shadow-amber-500/5" />
                   <video
                     ref={videoRef}
                     key={animation!.video_url!}
@@ -305,6 +316,35 @@ export default function HomePage() {
             </button>
           </div>
         </div>
+
+        {/* Category Filter Pills */}
+        {!isLoading && categories.length > 0 && (
+          <div className="mb-8 flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setCategoryFilter("all")}
+              className={`rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                categoryFilter === "all"
+                  ? "border-amber-500/50 bg-amber-500/15 text-amber-400"
+                  : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-white hover:border-zinc-700"
+              }`}
+            >
+              All Software
+            </button>
+            {categories.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setCategoryFilter(c.id)}
+                className={`rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                  categoryFilter === c.id
+                    ? "border-amber-500/50 bg-amber-500/15 text-amber-400"
+                    : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-white hover:border-zinc-700"
+                }`}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Loading Skeleton */}
         {isLoading ? (

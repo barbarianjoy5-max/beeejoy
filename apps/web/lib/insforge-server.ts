@@ -4,14 +4,20 @@
 // Uses INSFORGE_API_KEY for privileged operations (storage signed URLs).
 // ==============================================================================
 
+import "server-only";
+
 import { createClient } from "@insforge/sdk";
 
 export function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_INSFORGE_URL;
-  const apiKey = process.env.INSFORGE_API_KEY || process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY;
+  const apiKey = process.env.INSFORGE_API_KEY;
 
   if (!url) {
     throw new Error("NEXT_PUBLIC_INSFORGE_URL is not configured.");
+  }
+
+  if (!apiKey) {
+    throw new Error("INSFORGE_API_KEY is not configured; privileged operation refused.");
   }
 
   return createClient({

@@ -16,7 +16,7 @@ export async function GET(
     // 1. Fetch vendor from public_vendors view or vendors table (status = 'active')
     const { data: vendor, error: vErr } = await adminDb.database
       .from("vendors")
-      .select("id, user_id, store_name, slug, bio, cover_url, status, created_at")
+      .select("id, user_id, store_name, slug, bio, cover_url, status, created_at, profile_picture_enabled, cover_photo_enabled")
       .eq("slug", username)
       .eq("status", "active")
       .maybeSingle();
@@ -58,6 +58,8 @@ export async function GET(
         bio: vendor.bio,
         cover_url: vendor.cover_url,
         avatar_url: avatarUrl,
+        profile_picture_enabled: vendor.profile_picture_enabled ?? true,
+        cover_photo_enabled: vendor.cover_photo_enabled ?? true,
         created_at: vendor.created_at,
       },
       products: products || [],

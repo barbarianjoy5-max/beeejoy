@@ -5,6 +5,7 @@ import {
   BRANDING_BUCKET,
   SITE_BRANDING_KEY,
   isBrandingTarget,
+  isBrandingTheme,
 } from "@/lib/branding";
 import { SiteBrandingConfig } from "@/lib/types";
 
@@ -48,8 +49,20 @@ export async function GET(req: NextRequest) {
     }
 
     const config = (data.value as SiteBrandingConfig) || null;
+
+    // Optional theme=light selects the light-mode upload; when none exists the
+    // dark asset is served so the header never loses its logo.
+    const themeParam = req.nextUrl.searchParams.get("theme");
+    const theme = isBrandingTheme(themeParam) ? themeParam : "dark";
+
     const storagePath =
-      target === "icon" ? config?.icon_storage_path : config?.wordmark_storage_path;
+      target === "icon"
+        ? theme === "light"
+          ? config?.icon_light_storage_path || config?.icon_storage_path
+          : config?.icon_storage_path
+        : theme === "light"
+          ? config?.wordmark_light_storage_path || config?.wordmark_storage_path
+          : config?.wordmark_storage_path;
 
     if (!storagePath) {
       return notFound();
