@@ -17,6 +17,9 @@ export interface Vendor {
   commission_rate: number;
   payout_info?: Record<string, any>;
   membership_plan?: "basic" | "premium" | "pro" | "custom" | null;
+  membership_activated_at?: string | null;
+  membership_expires_at?: string | null;
+  free_basic_status?: "inherit" | "granted" | "revoked" | string | null;
   product_limit?: number | null;
   product_priority?: number | null;
   whatsapp_enabled?: boolean | null;
@@ -36,6 +39,9 @@ export interface PublicVendor {
   cover_url: string | null;
   avatar_url?: string | null;
   created_at: string;
+  product_priority?: number | null;
+  whatsapp_enabled?: boolean | null;
+  showcase_enabled?: boolean | null;
 }
 
 export interface HomepageAnimationConfig {
@@ -80,7 +86,34 @@ export interface SiteBrandingConfig {
   icon_size_px?: number;
   wordmark_size_px?: number;
   seller_avatar_size_px?: number;
+  /**
+   * Color & typography customization. All optional — existing installs
+   * keep working with the shipped defaults when these are absent.
+   */
+  colors?: SiteThemeColors | null;
+  fonts?: SiteThemeFonts | null;
   updated_at?: string;
+}
+
+/** Admin-customizable color palette. All values are valid CSS hex (#rrggbb). */
+export interface SiteThemeColors {
+  primary?: string | null;
+  secondary?: string | null;
+  accent?: string | null;
+  page_bg?: string | null;
+  surface_bg?: string | null;
+  text_primary?: string | null;
+  text_muted?: string | null;
+  button_bg?: string | null;
+  button_text?: string | null;
+  border?: string | null;
+}
+
+/** Admin-customizable font families. Values are font-family strings. */
+export interface SiteThemeFonts {
+  heading?: string | null;
+  body?: string | null;
+  button?: string | null;
 }
 
 export interface UserProfile {

@@ -115,6 +115,9 @@ export async function POST(req: NextRequest) {
         reference: existing.reference,
         amountBdt: Number(existing.amount_bdt),
       };
+      // NOTE: legacy pending rows keep duration_value/duration_unit NULL.
+      // Their terms are resolved via the legacy fallback at Admin approval
+      // time (Stage 4.2) — checkout reuse must never rewrite them.
     } else {
       // Disabled plans block NEW checkouts only — existing pending payments
       // continue at their originally stored amount.
@@ -136,6 +139,10 @@ export async function POST(req: NextRequest) {
             currency: "BDT",
             reference,
             status: "pending",
+            // Stage 4.1: snapshot the plan's duration terms at checkout time
+            // so later admin pricing/duration edits cannot alter this payment.
+            duration_value: planConfig.durationValue,
+            duration_unit: planConfig.durationUnit,
           },
         ])
         .select("id, reference")

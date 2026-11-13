@@ -25,6 +25,9 @@ import {
   Plus,
   Send,
   Eye,
+  Check,
+  X,
+  ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -37,6 +40,13 @@ export default function SellerDashboardPage() {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Active product count & membership product limit
+  const activeProductCount = products.filter(
+    (p) => p.status === "published" || p.status === "pending_review"
+  ).length;
+  const productLimit = typeof vendor?.product_limit === "number" ? vendor.product_limit : 5;
+  const isAtProductLimit = activeProductCount >= productLimit;
 
   // Application form state (for non-sellers)
   const [applyStoreName, setApplyStoreName] = useState("");
@@ -85,6 +95,60 @@ export default function SellerDashboardPage() {
   // Membership payment state
   const [membershipLoading, setMembershipLoading] = useState<string | null>(null);
   const [membershipError, setMembershipError] = useState<string | null>(null);
+  const [membershipPlans, setMembershipPlans] = useState<any[]>([]);
+  const [membershipGlobalRules, setMembershipGlobalRules] = useState<{ free_basic_on_registration?: boolean }>({});
+
+  const loadMembershipPlans = useCallback(async () => {
+    try {
+      const res = await fetch("/api/membership/plans");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.plans)) {
+          setMembershipPlans(data.plans);
+        }
+        if (data.global_rules && typeof data.global_rules === "object") {
+          setMembershipGlobalRules(data.global_rules);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not load membership plans:", err);
+    }
+  }, []);
+
+  // Membership status summary (Stage 4.6)
+  const membershipExpiryDate = vendor?.membership_expires_at
+    ? new Date(vendor.membership_expires_at)
+    : null;
+  const hasActivePaidTerm = Boolean(
+    membershipExpiryDate &&
+      !isNaN(membershipExpiryDate.getTime()) &&
+      membershipExpiryDate.getTime() > Date.now()
+  );
+  const freeBasicRaw =
+    vendor?.free_basic_status ||
+    (vendor?.payout_info && typeof vendor.payout_info === "object"
+      ? vendor.payout_info.free_basic_status
+      : null) ||
+    "inherit";
+  const freeBasicEligible =
+    freeBasicRaw === "granted"
+      ? true
+      : freeBasicRaw === "revoked"
+      ? false
+      : membershipGlobalRules.free_basic_on_registration ?? true;
+  const isCustomPlan = vendor?.membership_plan === "custom";
+  const membershipDisplayState: "custom" | "active_paid" | "free_basic_active" | "membership_required" =
+    isCustomPlan
+      ? "custom"
+      : hasActivePaidTerm
+      ? "active_paid"
+      : freeBasicEligible
+      ? "free_basic_active"
+      : "membership_required";
+  const fmtDate = (d: Date | null | undefined) =>
+    d && !isNaN(d.getTime())
+      ? d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+      : "—";
 
   const startMembershipCheckout = async (plan: "basic" | "premium" | "pro") => {
     if (!user) return;
@@ -154,8 +218,9 @@ export default function SellerDashboardPage() {
   useEffect(() => {
     if (isSeller) {
       loadSellerProducts();
+      loadMembershipPlans();
     }
-  }, [isSeller, loadSellerProducts]);
+  }, [isSeller, loadSellerProducts, loadMembershipPlans]);
 
   // Load software categories for the product form (public read policy)
   useEffect(() => {
@@ -834,62 +899,236 @@ export default function SellerDashboardPage() {
           {/* Membership Plan */}
           {vendor && vendor.status === "active" && (
             <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-5">
                 <div>
-                  <h3 className="text-sm font-bold text-white">Seller Membership</h3>
-                  <p className="text-[11px] text-zinc-500 mt-0.5">
-                    Current plan: <span className="font-bold text-amber-400 uppercase">{vendor.membership_plan || "basic"}</span>
+                  <h3 className="text-base font-bold text-white">Seller Membership & Benefits</h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Your current plan is <span className="font-bold text-amber-400 uppercase">{vendor.membership_plan || "basic"}</span>.
+                    {vendor.membership_plan === "custom" ? " You have customized seller permissions configured by admin." : " Upgrade your plan to increase limits and unlock premium seller features."}
                   </p>
                 </div>
-                <p className="text-[11px] text-zinc-500">Payments are verified manually by admin before activation.</p>
+                <div className="text-xs text-zinc-500">
+                  Payments verified manually before activation
+                </div>
+              </div>
+
+              {/* Membership status summary */}
+              <div
+                className={`mb-5 rounded-xl border px-4 py-3 text-xs ${
+                  membershipDisplayState === "membership_required"
+                    ? "border-rose-500/30 bg-rose-500/10 text-rose-200"
+                    : membershipDisplayState === "active_paid"
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                    : "border-zinc-800 bg-zinc-950/60 text-zinc-300"
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <span className="font-bold uppercase tracking-wide">
+                    {membershipDisplayState === "custom" && "Custom Plan — managed by admin"}
+                    {membershipDisplayState === "active_paid" &&
+                      `Active Paid — ${(vendor.membership_plan || "basic").toUpperCase()}`}
+                    {membershipDisplayState === "free_basic_active" && "Permanent Free Basic"}
+                    {membershipDisplayState === "membership_required" && "Membership Required"}
+                  </span>
+                  {membershipDisplayState === "active_paid" && (
+                    <span className="text-zinc-400">
+                      Activated {fmtDate(vendor.membership_activated_at ? new Date(vendor.membership_activated_at) : null)}
+                      {" · "}Expires {fmtDate(membershipExpiryDate)}
+                    </span>
+                  )}
+                  {membershipDisplayState === "free_basic_active" && (
+                    <span className="text-zinc-400">Free Basic access — no expiry. Upgrade below for more products and features.</span>
+                  )}
+                  {membershipDisplayState === "membership_required" && (
+                    <span>
+                      Your membership has expired or Free Basic is unavailable. Choose a plan below to renew and keep selling.
+                    </span>
+                  )}
+                </div>
               </div>
 
               {membershipError && (
-                <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-                  {membershipError}
+                <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+                  <span>{membershipError}</span>
                 </div>
               )}
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                {(["basic", "premium", "pro"] as const).map((plan) => {
-                  const isCurrent = (vendor.membership_plan || "basic") === plan;
+              <div className="grid gap-4 md:grid-cols-3">
+                {(["basic", "premium", "pro"] as const).map((planName) => {
+                  const planConfig = membershipPlans.find((p) => p.plan === planName) || {
+                    plan: planName,
+                    priceBdt: planName === "pro" ? 2000 : planName === "premium" ? 1000 : 500,
+                    enabled: true,
+                    features: {
+                      product_limit: planName === "pro" ? 100 : planName === "premium" ? 25 : 5,
+                      product_priority: planName === "pro" ? 10 : planName === "premium" ? 5 : 0,
+                      whatsapp_enabled: true,
+                      profile_picture_enabled: true,
+                      cover_photo_enabled: planName !== "basic",
+                      showcase_enabled: planName === "pro",
+                    },
+                  };
+
+                  const isCurrent = (vendor.membership_plan || "basic") === planName;
+                  const feats = planConfig.features;
+
+                  const tierRank: Record<string, number> = { basic: 1, premium: 2, pro: 3, custom: 0 };
+                  const currentRank = tierRank[vendor.membership_plan || "basic"] || 1;
+                  const thisRank = tierRank[planName] || 1;
+                  const isEligibleUpgrade = thisRank > currentRank;
+
                   return (
                     <div
-                      key={plan}
-                      className={`rounded-xl border p-4 ${
+                      key={planName}
+                      className={`relative flex flex-col justify-between rounded-2xl border p-5 transition-all ${
                         isCurrent
-                          ? "border-amber-500/40 bg-amber-500/5"
-                          : "border-zinc-800 bg-zinc-950/60"
+                          ? "border-amber-500/50 bg-amber-500/5 shadow-lg shadow-amber-500/5 ring-1 ring-amber-500/30"
+                          : "border-zinc-800 bg-zinc-950/70 hover:border-zinc-700"
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-white capitalize">{plan}</span>
-                        {isCurrent && (
-                          <span className="rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[9px] font-bold text-amber-400 uppercase">
-                            Current
+                      {/* Top Plan Header */}
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <h4 className="text-base font-bold text-white capitalize">{planName}</h4>
+                          {isCurrent && (
+                            <span className="rounded-full bg-amber-500/20 border border-amber-500/40 px-2.5 py-0.5 text-[10px] font-bold text-amber-400 uppercase tracking-wide">
+                              Current Plan
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Price */}
+                        <div className="flex items-baseline gap-1 my-3">
+                          <span className="text-2xl font-black text-white">
+                            ৳{planConfig.priceBdt?.toLocaleString("en-BD") || "0"}
                           </span>
+                          <span className="text-xs text-zinc-400 font-medium">BDT</span>
+                        </div>
+
+                        {/* Features List */}
+                        <div className="space-y-2.5 pt-3 border-t border-zinc-800/80 text-xs">
+                          {/* Product Limit */}
+                          <div className="flex items-center gap-2">
+                            <Check className="h-4 w-4 text-emerald-400 shrink-0" />
+                            <span className="text-zinc-200">
+                              Up to <strong className="text-white">{feats.product_limit}</strong> products
+                            </span>
+                          </div>
+
+                          {/* Priority */}
+                          <div className="flex items-center gap-2">
+                            <Check className="h-4 w-4 text-emerald-400 shrink-0" />
+                            <span className="text-zinc-200">
+                              Priority rank: <strong className="text-amber-400">{feats.product_priority}</strong>
+                            </span>
+                          </div>
+
+                          {/* WhatsApp Orders */}
+                          <div className="flex items-center gap-2">
+                            {feats.whatsapp_enabled ? (
+                              <>
+                                <Check className="h-4 w-4 text-emerald-400 shrink-0" />
+                                <span className="text-zinc-200">Direct WhatsApp Orders</span>
+                              </>
+                            ) : (
+                              <>
+                                <X className="h-4 w-4 text-zinc-500 shrink-0" />
+                                <span className="text-zinc-500">
+                                  WhatsApp Orders <span className="text-[10px] uppercase font-semibold text-zinc-500">(Not Included)</span>
+                                </span>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Profile Picture */}
+                          <div className="flex items-center gap-2">
+                            {feats.profile_picture_enabled ? (
+                              <>
+                                <Check className="h-4 w-4 text-emerald-400 shrink-0" />
+                                <span className="text-zinc-200">Store Avatar Upload</span>
+                              </>
+                            ) : (
+                              <>
+                                <X className="h-4 w-4 text-zinc-500 shrink-0" />
+                                <span className="text-zinc-500">
+                                  Store Avatar <span className="text-[10px] uppercase font-semibold text-zinc-500">(Not Included)</span>
+                                </span>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Cover Photo */}
+                          <div className="flex items-center gap-2">
+                            {feats.cover_photo_enabled ? (
+                              <>
+                                <Check className="h-4 w-4 text-emerald-400 shrink-0" />
+                                <span className="text-zinc-200">Store Banner / Cover Photo</span>
+                              </>
+                            ) : (
+                              <>
+                                <X className="h-4 w-4 text-zinc-500 shrink-0" />
+                                <span className="text-zinc-500">
+                                  Store Banner <span className="text-[10px] uppercase font-semibold text-zinc-500">(Not Included)</span>
+                                </span>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Homepage Showcase */}
+                          <div className="flex items-center gap-2">
+                            {feats.showcase_enabled ? (
+                              <>
+                                <Check className="h-4 w-4 text-emerald-400 shrink-0" />
+                                <span className="text-zinc-200 font-semibold text-amber-300">Homepage Showcase</span>
+                              </>
+                            ) : (
+                              <>
+                                <X className="h-4 w-4 text-zinc-500 shrink-0" />
+                                <span className="text-zinc-500">
+                                  Homepage Showcase <span className="text-[10px] uppercase font-semibold text-zinc-500">(Not Included)</span>
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Upgrade / Active CTA */}
+                      <div className="mt-5 pt-3 border-t border-zinc-800/60">
+                        {isCurrent ? (
+                          <div className="w-full text-center py-2 text-xs font-bold text-amber-400 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                            Active Current Plan
+                          </div>
+                        ) : isEligibleUpgrade ? (
+                          <button
+                            onClick={() => startMembershipCheckout(planName)}
+                            disabled={membershipLoading !== null || !planConfig.enabled}
+                            className="w-full rounded-xl bg-amber-500 py-2.5 text-xs font-bold text-zinc-950 hover:bg-amber-400 disabled:opacity-50 transition-all cursor-pointer shadow-md shadow-amber-500/10"
+                          >
+                            {membershipLoading === planName ? (
+                              <span className="flex items-center justify-center gap-2">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Redirecting to Gateway...
+                              </span>
+                            ) : !planConfig.enabled ? (
+                              "Currently Unavailable"
+                            ) : (
+                              `Upgrade to ${planName.toUpperCase()}`
+                            )}
+                          </button>
+                        ) : (
+                          <div className="w-full text-center py-2 text-xs text-zinc-500">
+                            Included in your higher plan
+                          </div>
                         )}
                       </div>
-                      <p className="mt-1 text-[10px] text-zinc-500">
-                        {plan === "basic" && "5 products · priority 0"}
-                        {plan === "premium" && "25 products · priority 5 · cover photo"}
-                        {plan === "pro" && "100 products · priority 10 · showcase"}
-                      </p>
-                      {!isCurrent && (
-                        <button
-                          onClick={() => startMembershipCheckout(plan)}
-                          disabled={membershipLoading !== null}
-                          className="mt-3 w-full rounded-lg bg-amber-500 py-2 text-[11px] font-bold text-zinc-950 hover:bg-amber-400 disabled:opacity-50 transition-all"
-                        >
-                          {membershipLoading === plan ? "Redirecting..." : `Upgrade to ${plan}`}
-                        </button>
-                      )}
                     </div>
                   );
                 })}
               </div>
-              <p className="mt-3 text-[10px] text-zinc-600">
-                Checkout opens the secure payment gateway. Membership activates only after admin approval.
+              <p className="mt-4 text-[11px] text-zinc-500 text-center sm:text-left">
+                Checkout opens the secure UddoktaPay payment gateway. Membership tier activates automatically after admin approval.
               </p>
             </div>
           )}
@@ -909,17 +1148,80 @@ export default function SellerDashboardPage() {
       {/* 2. MY PRODUCTS TAB */}
       {activeTab === "products" && (
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-white">Your Products</h2>
-            <button
-              onClick={loadSellerProducts}
-              disabled={loadingProducts}
-              className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:text-white"
-            >
-              <RefreshCw className={`h-3 w-3 ${loadingProducts ? "animate-spin" : ""}`} />
-              <span>Refresh</span>
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-lg font-bold text-white">Your Products</h2>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                    isAtProductLimit
+                      ? "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                      : "bg-zinc-800 text-zinc-300 border-zinc-700"
+                  }`}
+                >
+                  {activeProductCount} / {productLimit} products used
+                </span>
+              </div>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Manage your software listings, review statuses, and download packages.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  if (isAtProductLimit) {
+                    setFeedback({
+                      type: "error",
+                      message: `Product upload limit reached (${activeProductCount}/${productLimit} products). Upgrade your plan to list more products.`,
+                    });
+                    setActiveTab("overview");
+                    return;
+                  }
+                  resetProductForm();
+                  setActiveTab("upload");
+                }}
+                className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition-all ${
+                  isAtProductLimit
+                    ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 border border-zinc-700"
+                    : "bg-amber-500 text-zinc-950 hover:bg-amber-400 shadow-md shadow-amber-500/10 cursor-pointer"
+                }`}
+              >
+                <Plus className="h-4 w-4" />
+                <span>Upload Product</span>
+              </button>
+              <button
+                onClick={loadSellerProducts}
+                disabled={loadingProducts}
+                className="flex items-center gap-1.5 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-300 hover:text-white cursor-pointer"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loadingProducts ? "animate-spin" : ""}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
           </div>
+
+          {/* Product Limit Warning Banner */}
+          {isAtProductLimit && (
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-xs font-bold text-white">
+                    Product Upload Limit Reached ({activeProductCount}/{productLimit} products)
+                  </h4>
+                  <p className="mt-0.5 text-[11px] text-zinc-300">
+                    Your current plan allows up to {productLimit} published/pending products. Upgrade your membership plan in the Overview tab to list more software products.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveTab("overview")}
+                className="shrink-0 rounded-xl bg-amber-500 px-4 py-1.5 text-xs font-bold text-zinc-950 hover:bg-amber-400 cursor-pointer transition-all"
+              >
+                Upgrade Plan
+              </button>
+            </div>
+          )}
 
           {loadingProducts ? (
             <div className="py-20 flex justify-center">

@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedAdmin, getUserClient } from "@/lib/insforge-server";
+import {
+  getMembershipPlanFeatures,
+  isMembershipPlan,
+  isFreeBasicStatus,
+  resolveVendorMembershipState,
+  getMembershipGlobalRules,
+} from "@/lib/membership-plans";
 
 export async function GET(req: NextRequest) {
   try {
@@ -39,13 +46,19 @@ export async function GET(req: NextRequest) {
       productCounts.set(p.vendor_id, current);
     }
 
+    const globalRules = await getMembershipGlobalRules();
+
     const enhancedVendors = (vendors || []).map((v: any) => ({
       ...v,
+      free_basic_status: v.free_basic_status || "inherit",
+      membership_activated_at: v.membership_activated_at || null,
+      membership_expires_at: v.membership_expires_at || null,
+      resolved_membership_state: resolveVendorMembershipState(v, globalRules.free_basic_on_registration),
       user: profileMap.get(v.user_id) || null,
       stats: productCounts.get(v.id) || { total: 0, published: 0, pending: 0 },
     }));
 
-    return NextResponse.json({ vendors: enhancedVendors });
+    return NextResponse.json({ vendors: enhancedVendors, global_rules: globalRules });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Internal server error" }, { status: 500 });
   }
@@ -163,36 +176,7 @@ function extractStorageKey(url: string, folder: "avatars" | "covers", owner: str
     return null;
   }
 }
-const PLAN_PRESETS: Record<string, Partial<Record<string, any>>> = {
-  basic: {
-    product_limit: 5,
-    whatsapp_enabled: true,
-    profile_picture_enabled: true,
-    cover_photo_enabled: false,
-    product_priority: 0,
-    showcase_enabled: false,
-    downloadable_enabled: false,
-  },
-  premium: {
-    product_limit: 25,
-    whatsapp_enabled: true,
-    profile_picture_enabled: true,
-    cover_photo_enabled: true,
-    product_priority: 5,
-    showcase_enabled: false,
-    downloadable_enabled: true,
-  },
-  pro: {
-    product_limit: 100,
-    whatsapp_enabled: true,
-    profile_picture_enabled: true,
-    cover_photo_enabled: true,
-    product_priority: 10,
-    showcase_enabled: true,
-    downloadable_enabled: true,
-  },
-  custom: {},
-};
+
 
 export async function PATCH(req: NextRequest) {
   try {
@@ -273,7 +257,17 @@ export async function PATCH(req: NextRequest) {
       // clear cover_url after update object exists
     }
 
-    // Start from preset defaults when plan changes, otherwise keep existing.
+    // Safe payout_info preservation and custom_overrides tracking
+    const existingPayoutInfo = (vendor.payout_info && typeof vendor.payout_info === "object"
+      ? { ...vendor.payout_info }
+      : {}) as Record<string, any>;
+    const customOverrides = (existingPayoutInfo.custom_overrides && typeof existingPayoutInfo.custom_overrides === "object"
+      ? { ...existingPayoutInfo.custom_overrides }
+      : {}) as Record<string, boolean>;
+
+    // Handle resetting individual overrides to plan defaults if requested
+    const resetOverrides: string[] = Array.isArray(body.reset_overrides) ? body.reset_overrides : [];
+
     const planChanged = requestedPlan !== vendor.membership_plan;
     const update: Record<string, any> = {
       membership_plan: requestedPlan,
@@ -282,33 +276,87 @@ export async function PATCH(req: NextRequest) {
 
     if (disableCover) update.cover_url = null;
 
-    if (planChanged && PLAN_PRESETS[requestedPlan]) {
-      Object.assign(update, PLAN_PRESETS[requestedPlan]);
+    // Load dynamic plan features if requestedPlan is a standard tier
+    let dynamicFeatures: any = null;
+    if (isMembershipPlan(requestedPlan)) {
+      dynamicFeatures = await getMembershipPlanFeatures(requestedPlan);
     }
 
-    // Explicit overrides.
+    if (planChanged && dynamicFeatures) {
+      // If switching to a standard plan, apply dynamic defaults only to non-overridden fields
+      for (const [key, val] of Object.entries(dynamicFeatures)) {
+        if (!customOverrides[key]) {
+          update[key] = val;
+        }
+      }
+    }
+
+    // Reset requested fields to current plan default
+    for (const key of resetOverrides) {
+      delete customOverrides[key];
+      if (dynamicFeatures && dynamicFeatures[key] !== undefined) {
+        update[key] = dynamicFeatures[key];
+      }
+    }
+
+    // Free Basic Entitlement update (inherit, granted, revoked)
+    if (body.free_basic_status !== undefined) {
+      if (!isFreeBasicStatus(body.free_basic_status)) {
+        return NextResponse.json(
+          { error: "free_basic_status must be 'inherit', 'granted', or 'revoked'" },
+          { status: 400 }
+        );
+      }
+      update.free_basic_status = body.free_basic_status;
+      // Invariant: Revoking Free Basic does NOT cancel an active paid membership;
+      // they keep their paid plan until its natural expiration.
+    }
+
+    // Optional manual expiry date adjustment by Admin
+    if (body.membership_expires_at !== undefined) {
+      if (body.membership_expires_at === null || body.membership_expires_at === "") {
+        update.membership_expires_at = null;
+      } else {
+        const d = new Date(body.membership_expires_at);
+        if (isNaN(d.getTime())) {
+          return NextResponse.json({ error: "Invalid membership_expires_at date" }, { status: 400 });
+        }
+        update.membership_expires_at = d.toISOString();
+      }
+    }
+
+    // Explicit overrides submitted by Admin
     if (body.product_limit !== undefined) {
       const n = Number(body.product_limit);
       if (!Number.isInteger(n) || n < 0) {
         return NextResponse.json({ error: "product_limit must be a non-negative integer" }, { status: 400 });
       }
       update.product_limit = n;
+      customOverrides.product_limit = true;
     }
+
     if (body.product_priority !== undefined) {
       const n = Number(body.product_priority);
       if (!Number.isInteger(n) || n < 0) {
         return NextResponse.json({ error: "product_priority must be a non-negative integer" }, { status: 400 });
       }
       update.product_priority = n;
+      customOverrides.product_priority = true;
     }
+
     for (const key of ["whatsapp_enabled", "profile_picture_enabled", "cover_photo_enabled", "showcase_enabled", "downloadable_enabled"]) {
       if (body[key] !== undefined) {
         if (typeof body[key] !== "boolean") {
           return NextResponse.json({ error: `${key} must be boolean` }, { status: 400 });
         }
         update[key] = body[key];
+        customOverrides[key] = true;
       }
     }
+
+    // Persist custom_overrides inside payout_info while strictly preserving all existing payout fields
+    existingPayoutInfo.custom_overrides = customOverrides;
+    update.payout_info = existingPayoutInfo;
 
     const adminUserClient = getUserClient(admin.token);
     const { error: updErr } = await adminUserClient.database

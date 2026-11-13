@@ -7,9 +7,15 @@ import {
   isBrandingSizeKey,
   normalizeSiteBranding,
   toDisplayBranding,
+  normalizeThemeColors,
+  normalizeThemeFonts,
+  isValidHex,
+  THEME_COLOR_KEYS,
+  THEME_FONT_KEYS,
+  FONT_PRESETS,
   type BrandingSizes,
 } from "@/lib/branding";
-import { SiteBrandingConfig } from "@/lib/types";
+import { SiteBrandingConfig, SiteThemeColors, SiteThemeFonts } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -330,6 +336,128 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         message: "Display sizes saved successfully.",
+        branding: toDisplayBranding(updatedConfig),
+      });
+    }
+
+    // Case 4: Color & Typography Customization (Theme)
+    if (action === "save_theme") {
+      const validatedColors: SiteThemeColors = { ...(currentConfig.colors || {}) };
+      const validatedFonts: SiteThemeFonts = { ...(currentConfig.fonts || {}) };
+
+      if (body.colors !== undefined) {
+        if (typeof body.colors !== "object" || body.colors === null || Array.isArray(body.colors)) {
+          return NextResponse.json({ error: "Invalid colors payload. Expected an object." }, { status: 400 });
+        }
+        for (const [key, val] of Object.entries(body.colors)) {
+          if (!THEME_COLOR_KEYS.includes(key as any)) continue;
+          if (val === null || val === "" || val === undefined) {
+            delete (validatedColors as any)[key];
+            continue;
+          }
+          if (!isValidHex(val)) {
+            return NextResponse.json(
+              { error: `Invalid HEX color for ${key}: "${val}". Must be a valid 6-character hex code (e.g. #fbbf24).` },
+              { status: 400 }
+            );
+          }
+          (validatedColors as any)[key] = (val as string).toLowerCase();
+        }
+      }
+
+      if (body.fonts !== undefined) {
+        if (typeof body.fonts !== "object" || body.fonts === null || Array.isArray(body.fonts)) {
+          return NextResponse.json({ error: "Invalid fonts payload. Expected an object." }, { status: 400 });
+        }
+        const allowedFontValues = new Set<string>(FONT_PRESETS.map((p) => p.value));
+        for (const [key, val] of Object.entries(body.fonts)) {
+          if (!THEME_FONT_KEYS.includes(key as any)) continue;
+          if (val === null || val === "" || val === undefined) {
+            delete (validatedFonts as any)[key];
+            continue;
+          }
+          if (typeof val !== "string" || !allowedFontValues.has(val)) {
+            return NextResponse.json(
+              { error: `Invalid font family for ${key}. Please select from the available presets.` },
+              { status: 400 }
+            );
+          }
+          (validatedFonts as any)[key] = val;
+        }
+      }
+
+      const updatedConfig: SiteBrandingConfig = {
+        ...currentConfig,
+        colors: validatedColors,
+        fonts: validatedFonts,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error: saveErr } = await admin.adminDb.database
+        .from("site_settings")
+        .upsert(
+          [
+            {
+              key: SETTING_KEY,
+              value: updatedConfig,
+              updated_at: new Date().toISOString(),
+            },
+          ],
+          { onConflict: "key" }
+        );
+
+      if (saveErr) {
+        console.error("Theme save error:", saveErr);
+        return NextResponse.json(
+          { error: `Failed to save theme settings: ${saveErr.message}` },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Theme colors and typography saved successfully.",
+        branding: toDisplayBranding(updatedConfig),
+      });
+    }
+
+    if (action === "reset_theme") {
+      const resetTarget = body.target; // "colors" | "fonts" | "all"
+      const updatedConfig: SiteBrandingConfig = {
+        ...currentConfig,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (!resetTarget || resetTarget === "all" || resetTarget === "colors") {
+        updatedConfig.colors = null;
+      }
+      if (!resetTarget || resetTarget === "all" || resetTarget === "fonts") {
+        updatedConfig.fonts = null;
+      }
+
+      const { error: saveErr } = await admin.adminDb.database
+        .from("site_settings")
+        .upsert(
+          [
+            {
+              key: SETTING_KEY,
+              value: updatedConfig,
+              updated_at: new Date().toISOString(),
+            },
+          ],
+          { onConflict: "key" }
+        );
+
+      if (saveErr) {
+        return NextResponse.json(
+          { error: `Failed to reset theme settings: ${saveErr.message}` },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Theme settings reset to default.",
         branding: toDisplayBranding(updatedConfig),
       });
     }

@@ -139,26 +139,33 @@ export default function HomePage() {
   useEffect(() => {
     async function loadProducts() {
       try {
-        const { data: prodsData, error: pErr } = await insforge.database
-          .from("products")
-          .select("*")
-          .eq("status", "published")
-          .order("created_at", { ascending: false });
+        // Fetch priority-sorted products from site endpoint
+        const res = await fetch("/api/site/products");
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json?.products)) {
+            setProducts(json.products as Product[]);
+          }
+        } else {
+          // Graceful fallback to direct database query
+          const { data: prodsData, error: pErr } = await insforge.database
+            .from("products")
+            .select("*")
+            .eq("status", "published")
+            .order("created_at", { ascending: false });
 
-        if (!pErr && prodsData) {
-          // Fetch public vendors to enrich cards with seller attribution
-          const { data: vendorsData } = await insforge.database
-            .from("public_vendors")
-            .select("id, store_name, slug, bio, cover_url, created_at");
+          if (!pErr && prodsData) {
+            const { data: vendorsData } = await insforge.database
+              .from("public_vendors")
+              .select("id, store_name, slug, bio, cover_url, created_at");
 
-          const vendorMap = new Map((vendorsData || []).map((v: any) => [v.id, v as PublicVendor]));
-
-          const enriched = prodsData.map((p: any) => ({
-            ...p,
-            vendor: p.vendor_id ? vendorMap.get(p.vendor_id) || null : null,
-          }));
-
-          setProducts(enriched as Product[]);
+            const vendorMap = new Map((vendorsData || []).map((v: any) => [v.id, v as PublicVendor]));
+            const enriched = prodsData.map((p: any) => ({
+              ...p,
+              vendor: p.vendor_id ? vendorMap.get(p.vendor_id) || null : null,
+            }));
+            setProducts(enriched as Product[]);
+          }
         }
 
         // Load software categories for the dynamic filter (public read policy)
@@ -381,7 +388,11 @@ export default function HomePage() {
               const cleanWhatsApp = product.metadata?.whatsapp_number
                 ? String(product.metadata.whatsapp_number).replace(/[\s\+\-\(\)]/g, "").trim()
                 : null;
-              const hasValidWhatsApp = Boolean(cleanWhatsApp && /^[0-9]{7,15}$/.test(cleanWhatsApp));
+              const hasValidWhatsApp = Boolean(
+                cleanWhatsApp &&
+                /^[0-9]{7,15}$/.test(cleanWhatsApp) &&
+                product.vendor?.whatsapp_enabled !== false
+              );
               const orderMessage = encodeURIComponent(
                 formatOrderMessage(product.title, product.price_cents || 0, product.currency || "BDT")
               );

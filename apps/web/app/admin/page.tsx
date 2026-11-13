@@ -3,11 +3,21 @@
 import React, { useEffect, useState } from "react";
 import { useAuth, getClientAccessToken } from "../../lib/auth-context";
 import { insforge } from "../../lib/insforge";
-import { Product, formatPrice, HomepageAnimationConfig, SiteBrandingConfig, HeroContentConfig } from "../../lib/types";
+import { Product, formatPrice, HomepageAnimationConfig, SiteBrandingConfig, HeroContentConfig, SiteThemeColors, SiteThemeFonts } from "../../lib/types";
 import { DEFAULT_HERO_CONTENT, HERO_LIMITS, normalizeHeroContent } from "../../lib/hero-content";
 import {
   BRANDING_SIZE_LIMITS,
   DEFAULT_BRANDING_SIZES,
+  DEFAULT_THEME_COLORS,
+  DEFAULT_THEME_FONTS,
+  THEME_COLOR_KEYS,
+  THEME_COLOR_LABELS,
+  THEME_FONT_KEYS,
+  THEME_FONT_LABELS,
+  FONT_PRESETS,
+  isValidHex,
+  getGoogleFontFamilies,
+  buildGoogleFontsUrl,
   avatarSizeCss,
   iconSizeCss,
   normalizeBrandingSizes,
@@ -16,6 +26,8 @@ import {
   wordmarkTextSizeCss,
   type BrandingSizeKey,
   type BrandingSizes,
+  type ThemeColorKey,
+  type ThemeFontKey,
 } from "../../lib/branding";
 import { getYouTubeVideoId, getYouTubeEmbedUrl } from "../../lib/youtube";
 import TypewriterText from "../../components/TypewriterText";
@@ -157,6 +169,11 @@ export default function AdminDashboardPage() {
   // Unsaved slider values. Saved values live inside brandingConfig.
   const [brandingSizeDraft, setBrandingSizeDraft] = useState<BrandingSizes>(DEFAULT_BRANDING_SIZES);
 
+  // Theme Colors & Fonts state (draft for live preview before saving)
+  const [themeColorsDraft, setThemeColorsDraft] = useState<SiteThemeColors>(DEFAULT_THEME_COLORS);
+  const [themeFontsDraft, setThemeFontsDraft] = useState<SiteThemeFonts>(DEFAULT_THEME_FONTS);
+  const [savingTheme, setSavingTheme] = useState(false);
+
   // Hero Content state (heroConfig = saved, heroDraft = editor)
   const [heroConfig, setHeroConfig] = useState<HeroContentConfig | null>(null);
   const [heroDraft, setHeroDraft] = useState<HeroContentConfig>(DEFAULT_HERO_CONTENT);
@@ -260,11 +277,34 @@ export default function AdminDashboardPage() {
   const [loadingMembershipPayments, setLoadingMembershipPayments] = useState(false);
   const [membershipReviewLoading, setMembershipReviewLoading] = useState<string | null>(null);
 
-  // Membership pricing state
+  // Membership pricing & plan features state
   const [pricingPlans, setPricingPlans] = useState<any[]>([]);
   const [pricingLoading, setPricingLoading] = useState(false);
   const [pricingSaving, setPricingSaving] = useState<string | null>(null);
-  const [pricingDraft, setPricingDraft] = useState<Record<string, { price: string; enabled: boolean }>>({});
+  const [globalRules, setGlobalRules] = useState<{ free_basic_on_registration: boolean }>({
+    free_basic_on_registration: true,
+  });
+  const [savingGlobalRules, setSavingGlobalRules] = useState(false);
+  const [pricingDraft, setPricingDraft] = useState<
+    Record<
+      string,
+      {
+        price: string;
+        enabled: boolean;
+        duration_value: string;
+        duration_unit: string;
+        features: {
+          product_limit: number;
+          product_priority: number;
+          whatsapp_enabled: boolean;
+          profile_picture_enabled: boolean;
+          cover_photo_enabled: boolean;
+          showcase_enabled: boolean;
+        };
+      }
+    >
+  >({});
+  const [resetOverrides, setResetOverrides] = useState<string[]>([]);
 
   const loadMembershipPricing = async () => {
     setPricingLoading(true);
@@ -276,11 +316,24 @@ export default function AdminDashboardPage() {
       const data = await res.json();
       if (res.ok && Array.isArray(data.plans)) {
         setPricingPlans(data.plans);
-        const draft: Record<string, { price: string; enabled: boolean }> = {};
+        if (data.global_rules) {
+          setGlobalRules(data.global_rules);
+        }
+        const draft: Record<string, any> = {};
         for (const p of data.plans) {
           draft[p.plan] = {
             price: p.price != null ? String(p.price) : "",
             enabled: !!p.enabled,
+            duration_value: p.duration_value != null ? String(p.duration_value) : "",
+            duration_unit: p.duration_unit || (p.plan === "pro" ? "months" : "days"),
+            features: p.features || {
+              product_limit: p.plan === "pro" ? 100 : p.plan === "premium" ? 25 : 5,
+              product_priority: p.plan === "pro" ? 10 : p.plan === "premium" ? 5 : 0,
+              whatsapp_enabled: true,
+              profile_picture_enabled: true,
+              cover_photo_enabled: p.plan !== "basic",
+              showcase_enabled: p.plan === "pro",
+            },
           };
         }
         setPricingDraft(draft);
@@ -292,14 +345,63 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const handleToggleGlobalFreeBasic = async (newVal: boolean) => {
+    setSavingGlobalRules(true);
+    try {
+      const token = await getClientAccessToken();
+      const res = await fetch("/api/admin/membership-pricing", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          global_rules: { free_basic_on_registration: newVal },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update platform-wide Free Basic access");
+      setGlobalRules({ free_basic_on_registration: newVal });
+      setFeedback({ type: "success", message: "Platform-wide Free Basic access updated successfully." });
+      await loadSellers();
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err?.message || "Failed to update platform-wide Free Basic access" });
+    } finally {
+      setSavingGlobalRules(false);
+    }
+  };
+
   const savePlanPricing = async (plan: string) => {
     const draft = pricingDraft[plan];
     if (!draft) return;
     const priceNum = Number(draft.price);
-    if (!Number.isFinite(priceNum) || priceNum <= 0) {
-      setFeedback({ type: "error", message: "Enter a valid positive BDT price." });
+    const minPrice = plan === "basic" ? 0 : 1;
+    if (!Number.isFinite(priceNum) || priceNum < minPrice) {
+      setFeedback({
+        type: "error",
+        message: plan === "basic" ? "Enter a valid non-negative BDT price (0 for free)." : "Enter a valid positive BDT price.",
+      });
       return;
     }
+
+    let duration_value: number | null = null;
+    let duration_unit: string | null = null;
+
+    if (plan === "basic") {
+      if (draft.duration_value !== "" && draft.duration_value !== "0" && Number(draft.duration_value) > 0) {
+        duration_value = Number(draft.duration_value);
+        duration_unit = draft.duration_unit || "days";
+      }
+    } else {
+      const durNum = Number(draft.duration_value);
+      if (!Number.isInteger(durNum) || durNum <= 0) {
+        setFeedback({ type: "error", message: `Please enter a valid positive duration for ${plan}.` });
+        return;
+      }
+      duration_value = durNum;
+      duration_unit = draft.duration_unit || (plan === "pro" ? "months" : "days");
+    }
+
     setPricingSaving(plan);
     setFeedback(null);
     try {
@@ -310,14 +412,21 @@ export default function AdminDashboardPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ plan, price: priceNum, enabled: draft.enabled }),
+        body: JSON.stringify({
+          plan,
+          price: priceNum,
+          enabled: draft.enabled,
+          duration_value,
+          duration_unit,
+          features: draft.features,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to save pricing");
-      setFeedback({ type: "success", message: data.message || "Pricing saved." });
+      if (!res.ok) throw new Error(data.error || "Failed to save plan settings");
+      setFeedback({ type: "success", message: data.message || "Plan updated." });
       await loadMembershipPricing();
     } catch (err: any) {
-      setFeedback({ type: "error", message: err?.message || "Failed to save pricing" });
+      setFeedback({ type: "error", message: err?.message || "Failed to save plan settings" });
     } finally {
       setPricingSaving(null);
     }
@@ -515,6 +624,14 @@ export default function AdminDashboardPage() {
       if (res.ok && data.branding) {
         setBrandingConfig(data.branding);
         setBrandingSizeDraft(normalizeBrandingSizes(data.branding));
+        setThemeColorsDraft({
+          ...DEFAULT_THEME_COLORS,
+          ...(data.branding.colors || {}),
+        });
+        setThemeFontsDraft({
+          ...DEFAULT_THEME_FONTS,
+          ...(data.branding.fonts || {}),
+        });
       }
     } catch (err) {
       console.warn("Failed to load branding settings:", err);
@@ -707,6 +824,115 @@ export default function AdminDashboardPage() {
       setFeedback({ type: "error", message: err?.message || "Failed to save display sizes" });
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // Theme Colors & Typography handlers
+  // ----------------------------------------------------------------------------
+  const updateThemeColor = (key: ThemeColorKey, hex: string) => {
+    setThemeColorsDraft((prev) => ({
+      ...prev,
+      [key]: hex,
+    }));
+  };
+
+  const resetThemeColor = (key: ThemeColorKey) => {
+    setThemeColorsDraft((prev) => ({
+      ...prev,
+      [key]: DEFAULT_THEME_COLORS[key],
+    }));
+  };
+
+  const updateThemeFont = (key: ThemeFontKey, fontValue: string) => {
+    setThemeFontsDraft((prev) => ({
+      ...prev,
+      [key]: fontValue,
+    }));
+  };
+
+  const resetThemeFont = (key: ThemeFontKey) => {
+    setThemeFontsDraft((prev) => ({
+      ...prev,
+      [key]: DEFAULT_THEME_FONTS[key],
+    }));
+  };
+
+  const themeColorsSaved: SiteThemeColors = {
+    ...DEFAULT_THEME_COLORS,
+    ...(brandingConfig?.colors || {}),
+  };
+
+  const themeFontsSaved: SiteThemeFonts = {
+    ...DEFAULT_THEME_FONTS,
+    ...(brandingConfig?.fonts || {}),
+  };
+
+  const themeColorsDirty = THEME_COLOR_KEYS.some(
+    (key) => (themeColorsDraft[key] || DEFAULT_THEME_COLORS[key]) !== (themeColorsSaved[key] || DEFAULT_THEME_COLORS[key])
+  );
+
+  const themeFontsDirty = THEME_FONT_KEYS.some(
+    (key) => (themeFontsDraft[key] || DEFAULT_THEME_FONTS[key]) !== (themeFontsSaved[key] || DEFAULT_THEME_FONTS[key])
+  );
+
+  const themeDirty = themeColorsDirty || themeFontsDirty;
+
+  const handleSaveTheme = async () => {
+    setSavingTheme(true);
+    setFeedback(null);
+    try {
+      const token = await getClientAccessToken();
+      const res = await fetch("/api/admin/branding", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: "save_theme",
+          colors: themeColorsDraft,
+          fonts: themeFontsDraft,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save theme settings");
+      setBrandingConfig(data.branding);
+      setFeedback({ type: "success", message: data.message || "Theme colors and typography saved successfully!" });
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err?.message || "Failed to save theme settings" });
+    } finally {
+      setSavingTheme(false);
+    }
+  };
+
+  const handleResetTheme = async (target: "all" | "colors" | "fonts") => {
+    if (!confirm(`Are you sure you want to reset ${target === "all" ? "all theme colors and fonts" : target} to defaults?`)) return;
+    setSavingTheme(true);
+    setFeedback(null);
+    try {
+      const token = await getClientAccessToken();
+      const res = await fetch("/api/admin/branding", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: "reset_theme",
+          target,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to reset theme");
+      setBrandingConfig(data.branding);
+      if (target === "all" || target === "colors") setThemeColorsDraft(DEFAULT_THEME_COLORS);
+      if (target === "all" || target === "fonts") setThemeFontsDraft(DEFAULT_THEME_FONTS);
+      setFeedback({ type: "success", message: "Theme reset to default." });
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err?.message || "Failed to reset theme" });
+    } finally {
+      setSavingTheme(false);
     }
   };
 
@@ -1189,7 +1415,11 @@ export default function AdminDashboardPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ vendorId: membershipSeller.id, ...membershipForm }),
+        body: JSON.stringify({
+          vendorId: membershipSeller.id,
+          ...membershipForm,
+          reset_overrides: resetOverrides,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Membership update failed");
@@ -1277,6 +1507,10 @@ export default function AdminDashboardPage() {
       ? brandingConfig?.wordmark_light_url || brandingConfig?.wordmark_url
       : brandingConfig?.wordmark_url;
 
+  // Theme Fonts & Colors preview derivations
+  const previewFontFamilies = getGoogleFontFamilies(themeFontsDraft);
+  const previewGoogleFontsUrl = buildGoogleFontsUrl(previewFontFamilies);
+
   // ----------------------------------------------------------------------------
   // Grouped admin navigation
   // ----------------------------------------------------------------------------
@@ -1326,7 +1560,7 @@ export default function AdminDashboardPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:py-10">
+    <div className="admin-scope mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:py-10">
       {/* Header */}
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -1570,71 +1804,275 @@ export default function AdminDashboardPage() {
             </button>
           </div>
 
-          {/* Membership Pricing */}
+          {/* Membership Pricing & Plan Features */}
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
-            <h3 className="text-sm font-bold text-white">Membership Pricing</h3>
-            <p className="text-[11px] text-zinc-500 mt-1 mb-4">
-              Prices are in BDT and apply to new checkouts only — existing pending payments keep their original amount.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-white">Membership Plans & Features Management</h3>
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  Define pricing, duration terms, and exact feature limits for Basic, Premium, and Pro plans. Changes apply dynamically across the Seller Dashboard and checkout.
+                </p>
+              </div>
+            </div>
+
+            {/* Platform-wide Free Basic Setting */}
+            <div className="mb-5 rounded-2xl border border-zinc-800/90 bg-zinc-950/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-white">Platform-wide Free Basic Access</span>
+                  <span className="text-[10px] text-zinc-500 font-mono">(Governs all sellers set to 'Inherited')</span>
+                </div>
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  When enabled, all sellers with 'Inherited' status enjoy complimentary baseline Basic access. When disabled, inherited sellers must maintain an active paid membership to list software.
+                </p>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer self-start sm:self-auto shrink-0 bg-zinc-900/80 border border-zinc-800 rounded-xl px-3 py-1.5">
+                <input
+                  type="checkbox"
+                  checked={globalRules.free_basic_on_registration}
+                  disabled={savingGlobalRules}
+                  onChange={(e) => handleToggleGlobalFreeBasic(e.target.checked)}
+                  className="h-4 w-4 accent-amber-500 rounded cursor-pointer"
+                />
+                <span className={`text-xs font-semibold ${globalRules.free_basic_on_registration ? "text-emerald-400" : "text-rose-400"}`}>
+                  {savingGlobalRules ? "Saving..." : globalRules.free_basic_on_registration ? "Enabled (Free for Inherited)" : "Disabled (Paid Required)"}
+                </span>
+              </label>
+            </div>
+
             {pricingLoading ? (
               <div className="py-8 flex justify-center">
                 <Loader2 className="h-6 w-6 animate-spin text-amber-500" />
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="grid gap-4 lg:grid-cols-3">
                 {pricingPlans.map((p: any) => {
-                  const draft = pricingDraft[p.plan] || { price: "", enabled: false };
+                  const draft = pricingDraft[p.plan] || {
+                    price: "",
+                    enabled: false,
+                    duration_value: "",
+                    duration_unit: p.plan === "pro" ? "months" : "days",
+                    features: {
+                      product_limit: 5,
+                      product_priority: 0,
+                      whatsapp_enabled: true,
+                      profile_picture_enabled: true,
+                      cover_photo_enabled: false,
+                      showcase_enabled: false,
+                    },
+                  };
+
+                  const updateFeature = (key: string, val: any) => {
+                    setPricingDraft((prev) => ({
+                      ...prev,
+                      [p.plan]: {
+                        ...draft,
+                        features: {
+                          ...draft.features,
+                          [key]: val,
+                        },
+                      },
+                    }));
+                  };
+
                   return (
                     <div
                       key={p.plan}
-                      className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3"
+                      className="flex flex-col rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 transition-all"
                     >
-                      <div className="sm:w-28">
-                        <span className="text-sm font-bold text-white capitalize">{p.plan}</span>
-                        {!p.configured && (
-                          <span className="ml-2 rounded-full bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 text-[9px] font-bold text-rose-400 uppercase">
-                            Not configured
+                      {/* Card Header */}
+                      <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3 mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base font-bold text-white capitalize">{p.plan}</span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase border ${
+                              draft.enabled
+                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                : "bg-zinc-800 text-zinc-400 border-zinc-700"
+                            }`}
+                          >
+                            {draft.enabled ? "Active" : "Disabled"}
                           </span>
-                        )}
+                        </div>
+                        <label className="flex items-center gap-1.5 text-xs text-zinc-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={draft.enabled}
+                            onChange={(e) =>
+                              setPricingDraft((prev) => ({
+                                ...prev,
+                                [p.plan]: { ...draft, enabled: e.target.checked },
+                              }))
+                            }
+                            className="h-4 w-4 accent-amber-500 rounded cursor-pointer"
+                          />
+                          <span className="text-[11px] font-medium">{draft.enabled ? "Enabled" : "Disabled"}</span>
+                        </label>
                       </div>
-                      <label className="flex items-center gap-2 text-[11px] text-zinc-400">
-                        <span>BDT</span>
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={draft.price}
-                          onChange={(e) =>
-                            setPricingDraft((prev) => ({
-                              ...prev,
-                              [p.plan]: { ...draft, price: e.target.value },
-                            }))
-                          }
-                          className="w-28 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-white"
-                          placeholder="e.g. 500"
-                        />
-                      </label>
-                      <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={draft.enabled}
-                          onChange={(e) =>
-                            setPricingDraft((prev) => ({
-                              ...prev,
-                              [p.plan]: { ...draft, enabled: e.target.checked },
-                            }))
-                          }
-                          className="h-4 w-4 accent-amber-500"
-                        />
-                        <span>{draft.enabled ? "Enabled" : "Disabled"}</span>
-                      </label>
+
+                      {/* Price Row */}
+                      <div className="mb-3">
+                        <label className="block text-[11px] font-medium text-zinc-400 mb-1">
+                          Plan Price (BDT)
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-zinc-500">৳</span>
+                          <input
+                            type="number"
+                            min={p.plan === "basic" ? "0" : "1"}
+                            step="1"
+                            value={draft.price}
+                            onChange={(e) =>
+                              setPricingDraft((prev) => ({
+                                ...prev,
+                                [p.plan]: { ...draft, price: e.target.value },
+                              }))
+                            }
+                            className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm font-semibold text-white focus:border-amber-500 focus:outline-none"
+                            placeholder={p.plan === "basic" ? "0 for free, or paid amount" : "e.g. 500"}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Duration Row */}
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[11px] font-medium text-zinc-400">Membership Duration</label>
+                          {p.plan === "basic" && (
+                            <span className="text-[10px] text-zinc-500">Empty / 0 = Permanent</span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={draft.duration_value}
+                            onChange={(e) =>
+                              setPricingDraft((prev) => ({
+                                ...prev,
+                                [p.plan]: { ...draft, duration_value: e.target.value },
+                              }))
+                            }
+                            placeholder={p.plan === "basic" ? "Permanent" : "e.g. 30"}
+                            className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                          />
+                          <select
+                            value={draft.duration_unit}
+                            onChange={(e) =>
+                              setPricingDraft((prev) => ({
+                                ...prev,
+                                [p.plan]: { ...draft, duration_unit: e.target.value },
+                              }))
+                            }
+                            className="rounded-xl border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                          >
+                            <option value="days">Days</option>
+                            <option value="months">Months</option>
+                            <option value="years">Years</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Features Editor */}
+                      <div className="space-y-3 pt-2 border-t border-zinc-800/60 flex-1">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-amber-400/90 mb-2">
+                          Plan Features
+                        </div>
+
+                        {/* 1. Product Upload Limit */}
+                        <div>
+                          <label className="block text-[11px] text-zinc-300 mb-1">
+                            Product Upload Limit
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={draft.features?.product_limit ?? 5}
+                            onChange={(e) => updateFeature("product_limit", Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-white focus:border-amber-500 focus:outline-none"
+                          />
+                        </div>
+
+                        {/* 2. Product Priority */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-[11px] text-zinc-300">Product Priority</label>
+                            <span className="text-[10px] text-zinc-500">Higher = Homepage top</span>
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={draft.features?.product_priority ?? 0}
+                            onChange={(e) => updateFeature("product_priority", Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-white focus:border-amber-500 focus:outline-none"
+                          />
+                        </div>
+
+                        {/* 3. WhatsApp Orders */}
+                        <label className="flex items-center justify-between rounded-lg border border-zinc-800/80 bg-zinc-900/60 p-2 cursor-pointer hover:bg-zinc-900">
+                          <span className="text-[11px] text-zinc-300">WhatsApp Order Button</span>
+                          <input
+                            type="checkbox"
+                            checked={!!draft.features?.whatsapp_enabled}
+                            onChange={(e) => updateFeature("whatsapp_enabled", e.target.checked)}
+                            className="h-3.5 w-3.5 accent-amber-500 rounded cursor-pointer"
+                          />
+                        </label>
+
+                        {/* 4. Profile Picture */}
+                        <label className="flex items-center justify-between rounded-lg border border-zinc-800/80 bg-zinc-900/60 p-2 cursor-pointer hover:bg-zinc-900">
+                          <span className="text-[11px] text-zinc-300">Store Avatar Upload</span>
+                          <input
+                            type="checkbox"
+                            checked={!!draft.features?.profile_picture_enabled}
+                            onChange={(e) => updateFeature("profile_picture_enabled", e.target.checked)}
+                            className="h-3.5 w-3.5 accent-amber-500 rounded cursor-pointer"
+                          />
+                        </label>
+
+                        {/* 5. Cover Photo */}
+                        <label className="flex items-center justify-between rounded-lg border border-zinc-800/80 bg-zinc-900/60 p-2 cursor-pointer hover:bg-zinc-900">
+                          <span className="text-[11px] text-zinc-300">Store Banner / Cover Photo</span>
+                          <input
+                            type="checkbox"
+                            checked={!!draft.features?.cover_photo_enabled}
+                            onChange={(e) => updateFeature("cover_photo_enabled", e.target.checked)}
+                            className="h-3.5 w-3.5 accent-amber-500 rounded cursor-pointer"
+                          />
+                        </label>
+
+                        {/* 6. Homepage Showcase */}
+                        <label className="flex items-center justify-between rounded-lg border border-zinc-800/80 bg-zinc-900/60 p-2 cursor-pointer hover:bg-zinc-900">
+                          <span className="text-[11px] text-zinc-300">Homepage Showcase Eligible</span>
+                          <input
+                            type="checkbox"
+                            checked={!!draft.features?.showcase_enabled}
+                            onChange={(e) => updateFeature("showcase_enabled", e.target.checked)}
+                            className="h-3.5 w-3.5 accent-amber-500 rounded cursor-pointer"
+                          />
+                        </label>
+                      </div>
+
+                      {/* Save Button */}
                       <button
                         onClick={() => savePlanPricing(p.plan)}
                         disabled={pricingSaving === p.plan}
-                        className="sm:ml-auto inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-1.5 text-[11px] font-bold text-zinc-950 hover:bg-amber-400 disabled:opacity-50"
+                        className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-500 py-2 text-xs font-bold text-zinc-950 shadow hover:bg-amber-400 disabled:opacity-50 transition-all cursor-pointer"
                       >
-                        {pricingSaving === p.plan ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                        <span>Save</span>
+                        {pricingSaving === p.plan ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <span>Saving...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="h-3.5 w-3.5" />
+                            <span>Save {p.plan} Plan</span>
+                          </>
+                        )}
                       </button>
                     </div>
                   );
@@ -1953,7 +2391,7 @@ export default function AdminDashboardPage() {
                     className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5 hover:border-zinc-700 transition-all"
                   >
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h4 className="text-base font-bold text-white">{s.store_name}</h4>
                         <span
                           className={`rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
@@ -1966,6 +2404,35 @@ export default function AdminDashboardPage() {
                         >
                           {s.status}
                         </span>
+                        <span className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-zinc-800 text-zinc-300 border border-zinc-700">
+                          Plan: {s.membership_plan || "basic"}
+                        </span>
+                        {/* Free Basic Entitlement Badge */}
+                        {s.free_basic_status === "granted" ? (
+                          <span className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            Free Basic: Granted
+                          </span>
+                        ) : s.free_basic_status === "revoked" ? (
+                          <span className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                            Free Basic: Revoked
+                          </span>
+                        ) : (
+                          <span className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-zinc-800/80 text-zinc-400 border border-zinc-700">
+                            Free Basic: Inherited ({globalRules.free_basic_on_registration ? "Free" : "Paid Req"})
+                          </span>
+                        )}
+                        {/* Paid Plan Active Expiration Badge */}
+                        {s.membership_expires_at && new Date(s.membership_expires_at).getTime() > Date.now() && (
+                          <span className="rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                            Paid Active (Expires {new Date(s.membership_expires_at).toLocaleDateString()})
+                          </span>
+                        )}
+                        {/* Membership Required Alert Badge */}
+                        {s.resolved_membership_state === "membership_required" && (
+                          <span className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-rose-600/20 text-rose-300 border border-rose-500/40">
+                            Membership Required
+                          </span>
+                        )}
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400 mt-1">
                         <span className="font-mono text-amber-400">@{s.slug}</span>
@@ -1998,7 +2465,10 @@ export default function AdminDashboardPage() {
                       <button
                         onClick={() => {
                           setMembershipSeller(s);
+                          setResetOverrides([]);
                           setMembershipForm({
+                            membership_plan: s.membership_plan || "basic",
+                            free_basic_status: s.free_basic_status || "inherit",
                             product_limit: s.product_limit ?? 5,
                             whatsapp_enabled: s.whatsapp_enabled ?? true,
                             profile_picture_enabled: s.profile_picture_enabled ?? true,
@@ -2055,45 +2525,245 @@ export default function AdminDashboardPage() {
 
       {/* Membership Modal */}
       {membershipSeller && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-zinc-900 p-6 space-y-4">
-            <h3 className="text-lg font-bold text-white">Membership: {membershipSeller.store_name}</h3>
-            <div className="space-y-3">
-              <label className="block text-xs text-zinc-300">Plan</label>
-              <select
-                value={membershipForm.membership_plan}
-                onChange={(e) => setMembershipForm({ ...membershipForm, membership_plan: e.target.value })}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white"
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-zinc-900 p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white">Seller Membership: {membershipSeller.store_name}</h3>
+                <p className="text-[11px] text-zinc-400">
+                  Manage individual plan assignment and custom permission overrides.
+                </p>
+              </div>
+              <button
+                onClick={() => setMembershipSeller(null)}
+                className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800"
               >
-                <option value="basic">Basic</option>
-                <option value="premium">Premium</option>
-                <option value="pro">Pro</option>
-                <option value="custom">Custom</option>
-              </select>
-
-              <label className="block text-xs text-zinc-300">Product Limit</label>
-              <input type="number" min={0} value={membershipForm.product_limit}
-                onChange={(e) => setMembershipForm({ ...membershipForm, product_limit: Number(e.target.value) })}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white" />
-
-              <label className="block text-xs text-zinc-300">Product Priority</label>
-              <input type="number" min={0} value={membershipForm.product_priority}
-                onChange={(e) => setMembershipForm({ ...membershipForm, product_priority: Number(e.target.value) })}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white" />
-
-              {["whatsapp_enabled","profile_picture_enabled","cover_photo_enabled","showcase_enabled","downloadable_enabled"].map((k) => (
-                <label key={k} className="flex items-center gap-2 text-xs text-zinc-300">
-                  <input type="checkbox" checked={!!membershipForm[k]}
-                    onChange={(e) => setMembershipForm({ ...membershipForm, [k]: e.target.checked })} />
-                  {k.replace(/_/g," ")}
-                </label>
-              ))}
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setMembershipSeller(null)} className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300">Cancel</button>
-              <button onClick={handleSaveMembership} disabled={savingMembership}
-                className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-zinc-950 disabled:opacity-50">
-                {savingMembership ? "Saving..." : "Save"}
+
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+              {/* Plan Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">Membership Plan</label>
+                <select
+                  value={membershipForm.membership_plan || "basic"}
+                  onChange={(e) => {
+                    const newPlan = e.target.value;
+                    const planDef = pricingDraft[newPlan]?.features || {
+                      product_limit: newPlan === "pro" ? 100 : newPlan === "premium" ? 25 : 5,
+                      product_priority: newPlan === "pro" ? 10 : newPlan === "premium" ? 5 : 0,
+                      whatsapp_enabled: true,
+                      profile_picture_enabled: true,
+                      cover_photo_enabled: newPlan !== "basic",
+                      showcase_enabled: newPlan === "pro",
+                    };
+                    const updatedForm = { ...membershipForm, membership_plan: newPlan };
+                    if (newPlan !== "custom") {
+                      const overrides = (membershipSeller.payout_info?.custom_overrides || {}) as Record<string, boolean>;
+                      for (const [k, v] of Object.entries(planDef)) {
+                        if (!overrides[k] || resetOverrides.includes(k)) {
+                          (updatedForm as any)[k] = v;
+                        }
+                      }
+                    }
+                    setMembershipForm(updatedForm);
+                  }}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none"
+                >
+                  <option value="basic">Basic Plan</option>
+                  <option value="premium">Premium Plan</option>
+                  <option value="pro">Pro Plan</option>
+                  <option value="custom">Custom (All permissions independent)</option>
+                </select>
+                <p className="mt-1 text-[10px] text-zinc-500">
+                  {membershipForm.membership_plan === "custom"
+                    ? "Custom plan: permissions will never be modified by automated plan defaults."
+                    : "Standard plan: permissions inherit plan features unless overridden below."}
+                </p>
+              </div>
+
+              {/* Free Basic Access Entitlement */}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  Free Basic Access Entitlement
+                </label>
+                <select
+                  value={membershipForm.free_basic_status || "inherit"}
+                  onChange={(e) =>
+                    setMembershipForm({ ...membershipForm, free_basic_status: e.target.value })
+                  }
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none"
+                >
+                  <option value="inherit">
+                    Inherit Global Policy (
+                    {globalRules.free_basic_on_registration
+                      ? "Currently ON — All Inherited Sellers Eligible"
+                      : "Currently OFF — All Inherited Sellers Not Eligible"}
+                    )
+                  </option>
+                  <option value="granted">Explicitly Grant — Always Free Basic (overrides global OFF)</option>
+                  <option value="revoked">Revoke — Paid Membership Required (overrides global ON)</option>
+                </select>
+                <p className="mt-1 text-[10px] text-zinc-500">
+                  {membershipForm.free_basic_status === "revoked"
+                    ? "Revoked: Seller cannot use Free Basic. If Basic price is ৳0, they still cannot activate Basic. Must purchase a paid membership."
+                    : membershipForm.free_basic_status === "granted"
+                    ? "Granted: Seller receives permanent Free Basic regardless of the platform-wide toggle."
+                    : "Inherited: Follows the platform-wide Free Basic toggle in Membership Pricing settings."}
+                </p>
+                {membershipSeller.membership_expires_at &&
+                  new Date(membershipSeller.membership_expires_at).getTime() > Date.now() && (
+                    <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-300">
+                      <strong>Notice:</strong> This seller has an active paid plan until{" "}
+                      <strong>
+                        {new Date(membershipSeller.membership_expires_at).toLocaleString()}
+                      </strong>
+                      . Revoking Free Basic will take effect after this paid plan expires.
+                    </div>
+                  )}
+              </div>
+
+              {/* 1. Product Limit */}
+              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-white">Product Limit</span>
+                    {membershipSeller.payout_info?.custom_overrides?.product_limit && !resetOverrides.includes("product_limit") ? (
+                      <span className="rounded bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-bold text-amber-400">
+                        Custom Override
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-zinc-500">Plan Default</span>
+                    )}
+                  </div>
+                  {membershipSeller.payout_info?.custom_overrides?.product_limit && !resetOverrides.includes("product_limit") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const def = pricingDraft[membershipForm.membership_plan]?.features?.product_limit ?? 5;
+                        setMembershipForm({ ...membershipForm, product_limit: def });
+                        setResetOverrides((prev) => [...prev, "product_limit"]);
+                      }}
+                      className="text-[10px] text-amber-400 hover:text-amber-300 underline"
+                    >
+                      Reset to Default ({pricingDraft[membershipForm.membership_plan]?.features?.product_limit ?? 5})
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  min={0}
+                  value={membershipForm.product_limit ?? 5}
+                  onChange={(e) => setMembershipForm({ ...membershipForm, product_limit: Number(e.target.value) })}
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+
+              {/* 2. Product Priority */}
+              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-white">Product Priority</span>
+                    {membershipSeller.payout_info?.custom_overrides?.product_priority && !resetOverrides.includes("product_priority") ? (
+                      <span className="rounded bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-bold text-amber-400">
+                        Custom Override
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-zinc-500">Plan Default</span>
+                    )}
+                  </div>
+                  {membershipSeller.payout_info?.custom_overrides?.product_priority && !resetOverrides.includes("product_priority") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const def = pricingDraft[membershipForm.membership_plan]?.features?.product_priority ?? 0;
+                        setMembershipForm({ ...membershipForm, product_priority: def });
+                        setResetOverrides((prev) => [...prev, "product_priority"]);
+                      }}
+                      className="text-[10px] text-amber-400 hover:text-amber-300 underline"
+                    >
+                      Reset to Default ({pricingDraft[membershipForm.membership_plan]?.features?.product_priority ?? 0})
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  min={0}
+                  value={membershipForm.product_priority ?? 0}
+                  onChange={(e) => setMembershipForm({ ...membershipForm, product_priority: Number(e.target.value) })}
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Toggles */}
+              <div className="space-y-2">
+                {[
+                  { key: "whatsapp_enabled", label: "WhatsApp Order Button" },
+                  { key: "profile_picture_enabled", label: "Store Avatar Upload" },
+                  { key: "cover_photo_enabled", label: "Store Banner / Cover Photo" },
+                  { key: "showcase_enabled", label: "Homepage Showcase Eligible" },
+                ].map(({ key, label }) => {
+                  const isOverridden = membershipSeller.payout_info?.custom_overrides?.[key] && !resetOverrides.includes(key);
+                  return (
+                    <div key={key} className="flex items-center justify-between rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-2.5">
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-zinc-200 cursor-pointer">{label}</label>
+                        {isOverridden ? (
+                          <span className="rounded bg-amber-500/10 border border-amber-500/30 px-1 py-0.5 text-[8px] font-bold text-amber-400">
+                            Override
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {isOverridden && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const def = (pricingDraft[membershipForm.membership_plan]?.features as any)?.[key] ?? false;
+                              setMembershipForm({ ...membershipForm, [key]: def });
+                              setResetOverrides((prev) => [...prev, key]);
+                            }}
+                            className="text-[10px] text-amber-400 hover:text-amber-300 underline"
+                          >
+                            Reset
+                          </button>
+                        )}
+                        <input
+                          type="checkbox"
+                          checked={!!membershipForm[key]}
+                          onChange={(e) => setMembershipForm({ ...membershipForm, [key]: e.target.checked })}
+                          className="h-4 w-4 accent-amber-500 rounded cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setMembershipSeller(null)}
+                className="rounded-xl border border-zinc-700 px-4 py-2 text-xs font-semibold text-zinc-300 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveMembership}
+                disabled={savingMembership}
+                className="flex items-center gap-1.5 rounded-xl bg-amber-500 px-5 py-2 text-xs font-bold text-zinc-950 hover:bg-amber-400 disabled:opacity-50 transition-all cursor-pointer"
+              >
+                {savingMembership ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <span>Save Membership</span>
+                )}
               </button>
             </div>
           </div>
@@ -3506,6 +4176,377 @@ export default function AdminDashboardPage() {
                     <Save className="h-3.5 w-3.5" />
                   )}
                   <span>Save Changes</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION: THEME COLORS & TYPOGRAPHY CUSTOMIZATION */}
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Palette className="h-4 w-4 text-amber-400" />
+                  <span>Color & Typography Customization</span>
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  Customize the public marketplace color scheme and font stack. Real-time preview updates instantly below.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleResetTheme("all")}
+                  disabled={savingTheme}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:border-zinc-600 hover:text-white transition-all disabled:opacity-50"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>Reset All Defaults</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Dynamic font stylesheet link for instant preview */}
+            {previewGoogleFontsUrl && (
+              <link rel="stylesheet" href={previewGoogleFontsUrl} key={previewGoogleFontsUrl} />
+            )}
+
+            {/* Live Interactive Preview Box */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                  <Eye className="h-3.5 w-3.5 text-amber-400" />
+                  <span>Live Storefront Preview</span>
+                </h4>
+                <span className="text-[10px] text-zinc-500 font-mono">
+                  Contrast & Component Testing
+                </span>
+              </div>
+
+              <div
+                className="rounded-2xl border p-6 transition-all duration-200 overflow-hidden shadow-xl"
+                style={{
+                  backgroundColor: themeColorsDraft.page_bg || "#09090b",
+                  borderColor: themeColorsDraft.border || "#27272a",
+                }}
+              >
+                <div
+                  className="rounded-xl border p-6 space-y-4 max-w-xl mx-auto shadow-md"
+                  style={{
+                    backgroundColor: themeColorsDraft.surface_bg || "#18181b",
+                    borderColor: themeColorsDraft.border || "#27272a",
+                  }}
+                >
+                  {/* Badge */}
+                  <div>
+                    <div
+                      className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider mb-2"
+                      style={{
+                        backgroundColor: `${themeColorsDraft.primary || "#fbbf24"}25`,
+                        color: themeColorsDraft.primary || "#fbbf24",
+                        border: `1px solid ${themeColorsDraft.primary || "#fbbf24"}50`,
+                      }}
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      <span>Featured Suite</span>
+                    </div>
+
+                    {/* Heading */}
+                    <h3
+                      className="text-xl sm:text-2xl font-black tracking-tight"
+                      style={{
+                        fontFamily: themeFontsDraft.heading || "system-ui",
+                        color: themeColorsDraft.text_primary || "#f4f4f5",
+                      }}
+                    >
+                      BEJOY SYSTEM ACTIVE &bull; Illustrator CEP
+                    </h3>
+                  </div>
+
+                  {/* Body Text */}
+                  <p
+                    className="text-xs sm:text-sm leading-relaxed"
+                    style={{
+                      fontFamily: themeFontsDraft.body || "system-ui",
+                      color: themeColorsDraft.text_muted || "#71717a",
+                    }}
+                  >
+                    Experience automated pattern generation, instant licensing validation, and precision vector tools crafted specifically for professional textile and graphic designers.
+                  </p>
+
+                  {/* Buttons */}
+                  <div className="flex flex-wrap items-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      className="px-4 py-2 rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5"
+                      style={{
+                        fontFamily: themeFontsDraft.button || "system-ui",
+                        backgroundColor: themeColorsDraft.button_bg || "#f59e0b",
+                        color: themeColorsDraft.button_text || "#09090b",
+                      }}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      <span>Buy Now &bull; ৳999 BDT</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="px-4 py-2 rounded-xl text-xs font-semibold border transition-all"
+                      style={{
+                        fontFamily: themeFontsDraft.button || "system-ui",
+                        borderColor: themeColorsDraft.border || "#27272a",
+                        color: themeColorsDraft.text_primary || "#f4f4f5",
+                        backgroundColor: "transparent",
+                      }}
+                    >
+                      <span>Explore Demo</span>
+                    </button>
+
+                    <span
+                      className="text-xs font-semibold underline ml-auto cursor-pointer"
+                      style={{ color: themeColorsDraft.accent || "#d97706" }}
+                    >
+                      Docs & Support &rarr;
+                    </span>
+                  </div>
+
+                  {/* Swatches bar */}
+                  <div
+                    className="pt-3 border-t flex flex-wrap items-center justify-between gap-2 text-[10px]"
+                    style={{
+                      borderColor: themeColorsDraft.border || "#27272a",
+                      color: themeColorsDraft.text_muted || "#71717a",
+                    }}
+                  >
+                    <span>Contrast Preview (10 Palette Channels):</span>
+                    <div className="flex items-center gap-1.5">
+                      {THEME_COLOR_KEYS.map((k) => (
+                        <span
+                          key={k}
+                          title={`${THEME_COLOR_LABELS[k]}: ${themeColorsDraft[k] || DEFAULT_THEME_COLORS[k]}`}
+                          className="w-4 h-4 rounded-full border border-black/30 shadow-xs inline-block"
+                          style={{ backgroundColor: (themeColorsDraft[k] || DEFAULT_THEME_COLORS[k] || "#000000")! }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Typography Section (3 Fonts) */}
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                    <Type className="h-4 w-4 text-amber-400" />
+                    <span>Typography Stack</span>
+                  </h4>
+                  <p className="text-xs text-zinc-400">
+                    Select curated web fonts for headings, general content, and interactive buttons.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                {THEME_FONT_KEYS.map((fontKey) => {
+                  const currentFont = themeFontsDraft[fontKey] || DEFAULT_THEME_FONTS[fontKey] || "system-ui, -apple-system, sans-serif";
+                  const isCustom = currentFont !== DEFAULT_THEME_FONTS[fontKey];
+                  return (
+                    <div key={fontKey} className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <Type className="h-3.5 w-3.5 text-amber-400" />
+                          <span>{THEME_FONT_LABELS[fontKey]}</span>
+                        </label>
+                        {isCustom && (
+                          <button
+                            type="button"
+                            onClick={() => resetThemeFont(fontKey)}
+                            className="text-[10px] text-amber-400 hover:text-amber-300 underline"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+
+                      <select
+                        value={currentFont}
+                        onChange={(e) => updateThemeFont(fontKey, e.target.value)}
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-white focus:border-amber-500 focus:outline-none"
+                      >
+                        {FONT_PRESETS.map((preset) => (
+                          <option key={preset.value} value={preset.value}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      {/* Live Sample Text */}
+                      <div
+                        className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-2.5 text-xs text-zinc-200 text-center truncate"
+                        style={{ fontFamily: currentFont || "inherit" }}
+                      >
+                        {fontKey === "heading" ? "Heading Text Sample (Bold)" : fontKey === "button" ? "BUTTON: ৳999 BDT" : "Body text: Fast & clean typography"}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Color Palette Customization (10 Settings) */}
+            <div className="space-y-3 pt-2">
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                  <Palette className="h-4 w-4 text-amber-400" />
+                  <span>Color Palette</span>
+                </h4>
+                <p className="text-xs text-zinc-400">
+                  Each color provides a visual swatch color picker and an editable 6-character HEX input.
+                </p>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                {[
+                  {
+                    title: "Brand & Accent Colors",
+                    description: "Primary brand identity, secondary accents, and links.",
+                    keys: ["primary", "secondary", "accent"] as ThemeColorKey[],
+                  },
+                  {
+                    title: "Background & Surface Colors",
+                    description: "Main page canvas, container cards, and structural borders.",
+                    keys: ["page_bg", "surface_bg", "border"] as ThemeColorKey[],
+                  },
+                  {
+                    title: "Typography Colors",
+                    description: "Primary headings/titles and secondary muted metadata.",
+                    keys: ["text_primary", "text_muted"] as ThemeColorKey[],
+                  },
+                  {
+                    title: "Button Colors",
+                    description: "Primary action buttons (Checkout, Buy Now, Upgrade).",
+                    keys: ["button_bg", "button_text"] as ThemeColorKey[],
+                  },
+                ].map((group) => (
+                  <div key={group.title} className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 space-y-3">
+                    <div>
+                      <h5 className="text-xs font-bold text-white">{group.title}</h5>
+                      <p className="text-[11px] text-zinc-500">{group.description}</p>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {group.keys.map((key) => {
+                        const val = themeColorsDraft[key] || DEFAULT_THEME_COLORS[key] || "#000000";
+                        const isCustom = themeColorsDraft[key] && themeColorsDraft[key] !== DEFAULT_THEME_COLORS[key];
+                        const isHexValid = isValidHex(val);
+                        return (
+                          <div
+                            key={key}
+                            className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-zinc-900/50 border border-zinc-800/80"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-semibold text-zinc-200">
+                                  {THEME_COLOR_LABELS[key]}
+                                </span>
+                                {isCustom && (
+                                  <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-1.5 py-0.2">
+                                    Custom
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-zinc-500 font-mono block">
+                                Default: {DEFAULT_THEME_COLORS[key]}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {/* Color Picker Swatch */}
+                              <input
+                                type="color"
+                                value={isHexValid ? val : DEFAULT_THEME_COLORS[key] || "#000000"}
+                                onChange={(e) => updateThemeColor(key, e.target.value)}
+                                className="h-8 w-8 rounded-lg border border-zinc-700 bg-transparent cursor-pointer p-0.5"
+                                title={`Pick ${THEME_COLOR_LABELS[key]}`}
+                              />
+
+                              {/* Editable HEX input */}
+                              <input
+                                type="text"
+                                maxLength={7}
+                                value={themeColorsDraft[key] ?? DEFAULT_THEME_COLORS[key] ?? ""}
+                                onChange={(e) => updateThemeColor(key, e.target.value)}
+                                placeholder="#000000"
+                                className={`w-20 rounded-lg border px-2 py-1.5 text-xs font-mono text-center focus:outline-none ${
+                                  isHexValid
+                                    ? "border-zinc-700 bg-zinc-900 text-white focus:border-amber-500"
+                                    : "border-rose-500 bg-rose-950/30 text-rose-300"
+                                }`}
+                              />
+
+                              {/* Reset individual button */}
+                              {isCustom && (
+                                <button
+                                  type="button"
+                                  onClick={() => resetThemeColor(key)}
+                                  className="text-zinc-400 hover:text-white p-1"
+                                  title="Reset to default color"
+                                >
+                                  <RotateCcw className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Save & Reset Bar */}
+            <div className="flex flex-col gap-3 border-t border-zinc-800/80 pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-[11px] space-y-0.5">
+                {themeDirty ? (
+                  <span className="font-semibold text-amber-400">You have unsaved theme changes</span>
+                ) : (
+                  <span className="font-semibold text-emerald-400">All theme settings are saved</span>
+                )}
+                <p className="text-zinc-500">
+                  Settings are persisted in site_settings and applied globally across the public website with zero flash.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleResetTheme("all")}
+                  disabled={savingTheme}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-xs font-semibold text-zinc-300 hover:border-zinc-600 hover:text-white transition-all disabled:opacity-50"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Reset All to Defaults</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveTheme}
+                  disabled={!themeDirty || savingTheme}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 px-5 py-2 text-xs font-bold text-zinc-950 shadow-md shadow-amber-500/20 hover:bg-amber-400 disabled:opacity-40 transition-all cursor-pointer"
+                >
+                  {savingTheme ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Saving Theme...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-3.5 w-3.5" />
+                      <span>Save Theme Changes</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

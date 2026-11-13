@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedSeller } from "@/lib/insforge-server";
+import {
+  expireVendorMembership,
+  getMembershipGlobalRules,
+  resolveVendorMembershipState,
+} from "@/lib/membership-plans";
 
 export async function GET(req: NextRequest) {
   try {
@@ -37,6 +42,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Stage 4.5: membership_required sellers cannot create NEW products.
+    // Lazily run the existing expiry transition first so a lapsed paid term
+    // is resolved before the state check, then re-read the vendor row.
+    await expireVendorMembership(auth.vendor.id, auth.adminDb);
+    const { data: freshVendor } = await auth.adminDb.database
+      .from("vendors")
+      .select("*")
+      .eq("id", auth.vendor.id)
+      .maybeSingle();
+    if (freshVendor) auth.vendor = freshVendor;
+
+    const globalRules = await getMembershipGlobalRules();
+    const membershipState = resolveVendorMembershipState(
+      auth.vendor,
+      globalRules.free_basic_on_registration
+    );
+    if (membershipState === "membership_required") {
+      return NextResponse.json(
+        {
+          error:
+            "Membership required. Your seller membership has expired or Free Basic access is not available. Please renew or upgrade your membership to create new products.",
+          code: "MEMBERSHIP_REQUIRED",
+        },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const rawSlug = typeof body.slug === "string" ? body.slug.trim() : "";
@@ -64,6 +96,23 @@ export async function POST(req: NextRequest) {
 
     if (!cleanSlug || cleanSlug.length < 2) {
       return NextResponse.json({ error: "Valid product slug is required" }, { status: 400 });
+    }
+
+    // Enforce Product Upload Limit (count only published and pending_review products)
+    const maxProducts = typeof auth.vendor.product_limit === "number" ? auth.vendor.product_limit : 5;
+    const { count: currentProductCount, error: countErr } = await auth.adminDb.database
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("vendor_id", auth.vendor.id)
+      .in("status", ["published", "pending_review"]);
+
+    if (!countErr && currentProductCount !== null && currentProductCount >= maxProducts) {
+      return NextResponse.json(
+        {
+          error: `Product upload limit reached (${currentProductCount}/${maxProducts} products). Upgrade your membership plan to list more products.`,
+        },
+        { status: 403 }
+      );
     }
 
     // Check slug uniqueness
@@ -94,6 +143,23 @@ export async function POST(req: NextRequest) {
 
     // WhatsApp & Price Validation
     const cleanWhatsApp = rawWhatsApp.replace(/[\s\+\-\(\)]/g, "").trim();
+
+    // Enforce WhatsApp permission based on seller's active membership
+    if (auth.vendor.whatsapp_enabled === false) {
+      if (productType === "premium") {
+        return NextResponse.json(
+          { error: "Direct WhatsApp orders are disabled on your current plan. Upgrade your membership plan to sell Premium software." },
+          { status: 403 }
+        );
+      }
+      if (cleanWhatsApp) {
+        return NextResponse.json(
+          { error: "WhatsApp contact display is disabled on your current membership plan. Upgrade to enable." },
+          { status: 403 }
+        );
+      }
+    }
+
     let priceCents = 0;
 
     if (productType === "premium") {
@@ -283,6 +349,22 @@ export async function PUT(req: NextRequest) {
     }
 
     const cleanWhatsApp = rawWhatsApp.replace(/[\s\+\-\(\)]/g, "").trim();
+
+    if (auth.vendor.whatsapp_enabled === false) {
+      if (productType === "premium") {
+        return NextResponse.json(
+          { error: "Direct WhatsApp orders are disabled on your current plan. Upgrade your membership plan to sell Premium software." },
+          { status: 403 }
+        );
+      }
+      if (cleanWhatsApp) {
+        return NextResponse.json(
+          { error: "WhatsApp contact display is disabled on your current membership plan. Upgrade to enable." },
+          { status: 403 }
+        );
+      }
+    }
+
     let priceCents = 0;
 
     if (productType === "premium") {

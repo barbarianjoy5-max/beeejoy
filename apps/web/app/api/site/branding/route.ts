@@ -35,6 +35,8 @@ export async function GET() {
       wordmark_url: config?.wordmark_url || null,
       icon_light_url: config?.icon_light_url || null,
       wordmark_light_url: config?.wordmark_light_url || null,
+      colors: config?.colors || null,
+      fonts: config?.fonts || null,
       // Read-only display sizes so the public header and seller profiles render
       // exactly what the admin saved. Writing them stays admin-only.
       ...normalizeBrandingSizes(stored),
